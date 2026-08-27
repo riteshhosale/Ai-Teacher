@@ -1,13 +1,15 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { loginUser } from "../services/api";
+import { registerUser } from "../services/api";
 
-function Login() {
+function Register() {
   const navigate = useNavigate();
 
   const [formData, setFormData] = useState({
+    name: "",
     email: "",
     password: "",
+    confirmPassword: "",
   });
 
   const [loading, setLoading] = useState(false);
@@ -24,10 +26,22 @@ function Login() {
     e.preventDefault();
 
     setError("");
+
+    // Check password
+    if (formData.password !== formData.confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+
+    if (formData.password.length < 6) {
+      setError("Password must be at least 6 characters");
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const data = await loginUser(formData);
+      const data = await registerUser(formData);
 
       // Save JWT
       localStorage.setItem("token", data.token);
@@ -36,7 +50,7 @@ function Login() {
       localStorage.setItem("user", JSON.stringify(data.user));
 
       // Go to dashboard
-     navigate("/login");
+      navigate("/login");
 
     } catch (error) {
       setError(error.message);
@@ -46,7 +60,7 @@ function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-gray-100 flex items-center justify-center px-4 py-8">
 
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8">
 
@@ -54,11 +68,11 @@ function Login() {
         <div className="text-center mb-8">
 
           <h1 className="text-3xl font-bold text-gray-900">
-            Welcome Back
+            Create Account
           </h1>
 
           <p className="text-gray-500 mt-2">
-            Login to your account
+            Register to get started
           </p>
 
         </div>
@@ -72,6 +86,27 @@ function Login() {
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-5">
+
+          {/* Name */}
+          <div>
+
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Full Name
+            </label>
+
+            <input
+              type="text"
+              name="name"
+              placeholder="Enter your full name"
+              value={formData.name}
+              onChange={handleChange}
+              required
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg
+              outline-none focus:border-indigo-500 focus:ring-2
+              focus:ring-indigo-200"
+            />
+
+          </div>
 
           {/* Email */}
           <div>
@@ -104,7 +139,7 @@ function Login() {
             <input
               type="password"
               name="password"
-              placeholder="Enter your password"
+              placeholder="Create a password"
               value={formData.password}
               onChange={handleChange}
               required
@@ -115,30 +150,28 @@ function Login() {
 
           </div>
 
-          {/* Remember */}
-          <div className="flex items-center justify-between">
+          {/* Confirm Password */}
+          <div>
 
-            <label className="flex items-center gap-2 text-sm text-gray-600">
-
-              <input
-                type="checkbox"
-                className="w-4 h-4 accent-indigo-600"
-              />
-
-              Remember me
-
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Confirm Password
             </label>
 
-            <button
-              type="button"
-              className="text-sm text-indigo-600 hover:text-indigo-800"
-            >
-              Forgot password?
-            </button>
+            <input
+              type="password"
+              name="confirmPassword"
+              placeholder="Confirm your password"
+              value={formData.confirmPassword}
+              onChange={handleChange}
+              required
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg
+              outline-none focus:border-indigo-500 focus:ring-2
+              focus:ring-indigo-200"
+            />
 
           </div>
 
-          {/* Login */}
+          {/* Register */}
           <button
             type="submit"
             disabled={loading}
@@ -146,21 +179,21 @@ function Login() {
             font-semibold hover:bg-indigo-700 transition
             disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? "Logging in..." : "Login"}
+            {loading ? "Creating Account..." : "Create Account"}
           </button>
 
         </form>
 
-        {/* Register */}
+        {/* Login */}
         <p className="text-center text-sm text-gray-600 mt-6">
 
-          Don't have an account?
+          Already have an account?
 
           <Link
-            to="/register"
+            to="/login"
             className="ml-2 font-semibold text-indigo-600 hover:text-indigo-800"
           >
-            Register
+            Login
           </Link>
 
         </p>
@@ -171,4 +204,4 @@ function Login() {
   );
 }
 
-export default Login;
+export default Register;
