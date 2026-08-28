@@ -49,7 +49,7 @@ function Register() {
       // Save user
       localStorage.setItem("user", JSON.stringify(data.user));
 
-      // Go to dashboard
+      // Go to login
       navigate("/login");
 
     } catch (error) {
