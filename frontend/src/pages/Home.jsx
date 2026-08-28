@@ -1,41 +1,41 @@
 import { Link } from "react-router-dom";
 
-// import member1 from "../assets/member1.jpg";
+import member1 from "../assets/member_image/rites.jpg";
 import member2 from "../assets/member_image/member2.jpg";
 // import member3 from "../assets/member3.jpg";
 // import member4 from "../assets/member4.jpg";
 
 function Home() {
   const teamMembers = [
-    {
-      name: "Member 1",
-      role: "Frontend Developer",
-      //image: member1,
-      contribution:
-        "Designed and developed the user interface, responsive pages, and frontend components using React and Tailwind CSS.",
-    },
-    {
-      name: "Member 2",
-      role: "Backend Developer",
-      image: member2,
-      contribution:
-        "Developed the backend APIs, authentication system, database connection, and server-side functionality.",
-    },
-    {
-      name: "Member 3",
-      role: "AI & Research",
-      //image: member3,
-      contribution:
-        "Worked on problem research, AI-related features, data analysis, and improving the project's core solution.",
-    },
-    {
-      name: "Member 4",
-      role: "Presentation & Documentation",
-      //image: member4,
-      contribution:
-        "Handled project documentation, presentation, testing, project planning, and overall hackathon coordination.",
-    },
-  ];
+  {
+    name: "Member 1",
+    role: "Full Stack Developer",
+    image: member1,
+    contribution:
+      "Designed and developed the complete web application, including the React frontend, Tailwind CSS UI, Express.js backend, REST APIs, authentication, and MongoDB integration.",
+  },
+  {
+    name: "Member 2",
+    role: "Cyber Security Specialist",
+    image: member2,
+    contribution:
+      "Focused on application security, authentication, data protection, vulnerability analysis, secure API practices, and identifying potential cyber security risks.",
+  },
+  {
+    name: "Member 3",
+    role: "AI & Research",
+    //image: member3,
+    contribution:
+      "Worked on problem research, AI-related features, data analysis, and improving the core solution of the project.",
+  },
+  {
+    name: "Member 4",
+    role: "Presentation & Testing",
+    //image: member4,
+    contribution:
+      "Handled project documentation, presentation, testing, project planning, and overall hackathon coordination.",
+  },
+];
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 flex flex-col">
@@ -123,14 +123,15 @@ function Home() {
                 transition duration-300"
               >
 
-                {/* Member Image */}
-                <div className="flex justify-center">
+                 <div className="flex justify-center pt-7">
 
                   <img
                     src={member.image}
                     alt={member.name}
-                    className="w-24 h-24 rounded-full object-cover
-                    border-4 border-indigo-100 p-0"
+                    className="h-28 w-28 rounded-full object-cover
+                    border-4 border-indigo-50
+                    transition duration-300
+                    group-hover:scale-105"
                   />
 
                 </div>
