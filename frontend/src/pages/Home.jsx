@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 
 import member1 from "../assets/member_image/rites.jpg";
 import member2 from "../assets/member_image/member2.jpg";
-// import member3 from "../assets/member3.jpg";
+import member3 from "../assets/member_image/member-3.jpeg";
 // import member4 from "../assets/member4.jpg";
 
 function Home() {
@@ -24,7 +24,7 @@ function Home() {
   {
     name: "Member 3",
     role: "AI & Research",
-    //image: member3,
+    image: member3,
     contribution:
       "Worked on problem research, AI-related features, data analysis, and improving the core solution of the project.",
   },

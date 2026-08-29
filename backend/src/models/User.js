@@ -8,6 +8,7 @@ const userSchema = new mongoose.Schema(
             trim: true,
             minlength: [3, "Name must be at least 3 characters long"],
             maxlength: [50, "Name must be less than 50 characters long"],
+            match: [/^[a-zA-Z\s]+$/, "Name can only contain letters and spaces"],
         },
 
         email: {
@@ -23,6 +24,8 @@ const userSchema = new mongoose.Schema(
             type: String,
             required: [true, "Please add a password"],
             minlength: [6, "Password must be at least 6 characters long"],
+            maxlength: [20, "Password must be less than 20 characters long"],
+            match: [/(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{6,}/, "Password must contain at least one uppercase letter, one number, and one special character"],
         },
     },
     {
