@@ -5,6 +5,7 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import Learn from "./pages/Learn";
+import Lesson from "./pages/Lesson";
 
 function App() {
   return (
@@ -20,6 +21,8 @@ function App() {
         <Route path="/dashboard" element={<Dashboard />} />
 
         <Route path="/learn" element={<Learn />} />
+
+        <Route path="/lesson" element={<Lesson />} />
 
         <Route
           path="*"
