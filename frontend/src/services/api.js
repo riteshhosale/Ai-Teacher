@@ -46,6 +46,7 @@ export const getMe = async () => {
             Authorization: `Bearer ${token}`,
         },
     });
+    
 
     const data = await response.json();
 

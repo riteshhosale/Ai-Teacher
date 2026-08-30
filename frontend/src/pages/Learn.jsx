@@ -10,30 +10,60 @@ function Learn() {
   const [time, setTime] = useState("30 minutes");
   const [learningMode, setLearningMode] = useState("Topic");
 
-  const handleStartLesson = (e) => {
-    e.preventDefault();
+const handleStartLesson = async (e) => {
+  e.preventDefault();
 
-    if (!topic.trim()) {
+  if (!topic.trim()) {
+    return;
+  }
+
+  try {
+    const token = localStorage.getItem("token");
+
+    if (!token) {
+      navigate("/login");
       return;
     }
 
-    const lessonData = {
-      topic,
-      level,
-      language,
-      time,
-      learningMode,
-    };
-
-    // Save temporarily
-    localStorage.setItem(
-      "lessonData",
-      JSON.stringify(lessonData)
+    const response = await fetch(
+      "http://localhost:5000/api/lesson/generate",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          topic,
+          level,
+          language,
+          time,
+        }),
+      }
     );
 
-    // Temporary route
+    const data = await response.json();
+
+    if (!response.ok) {
+      alert(data.message || "Failed to generate lesson");
+      return;
+    }
+
+    localStorage.setItem(
+      "generatedLesson",
+      JSON.stringify(data.lesson)
+    );
+
     navigate("/lesson");
-  };
+
+  } catch (error) {
+    console.error(error);
+
+    alert(
+      "Unable to connect to the AI Teacher server"
+    );
+  }
+};
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">

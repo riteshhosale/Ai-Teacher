@@ -6,12 +6,12 @@ import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import Learn from "./pages/Learn";
 import Lesson from "./pages/Lesson";
+import UploadMaterial from "./pages/UploadMaterial";
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
-
         <Route path="/" element={<Home />} />
 
         <Route path="/login" element={<Login />} />
@@ -22,13 +22,11 @@ function App() {
 
         <Route path="/learn" element={<Learn />} />
 
+        <Route path="/upload" element={<UploadMaterial />} />
+
         <Route path="/lesson" element={<Lesson />} />
 
-        <Route
-          path="*"
-          element={<Navigate to="/" replace />}
-        />
-
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );

@@ -3,6 +3,7 @@ const cors = require("cors");
 
 const authRoutes = require("./routes/authRoutes");
 const lessonRoutes = require("./routes/lessonRoutes");
+const materialRoutes = require("./routes/materialRoutes");
 
 const app = express();
 
@@ -26,6 +27,7 @@ app.get("/", (req, res) => {
 //auth routes
 app.use("/api/auth", authRoutes);
 app.use("/api/lesson", lessonRoutes);
+app.use("/api/material", materialRoutes);
 
 app.use((req, res, next) => {
     res.status(404).json({
@@ -35,12 +37,18 @@ app.use((req, res, next) => {
 });
 
 app.use((err, req, res, next) => {
-    console.error(err);
+  console.error("================================");
+  console.error("UPLOAD ERROR:");
+  console.error(err);
+  console.error("================================");
 
-    res.status(500).json({
-        success: false,
-        message: "Server error",
-    });
+  res.status(500).json({
+    success: false,
+    message: err.message || "Server error",
+    error: process.env.NODE_ENV === "development"
+      ? err.stack
+      : undefined,
+  });
 });
 
 module.exports = app;
