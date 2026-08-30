@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import member1 from "../assets/member_image/member1.jpg";
 import member2 from "../assets/member_image/member2.jpg";
 import member3 from "../assets/member_image/member-3.jpeg";
-// import member4 from "../assets/member4.jpg";
+import member4 from "../assets/member_image/member4.jpg";
 
 function Home() {
   const teamMembers = [
@@ -31,7 +31,7 @@ function Home() {
     {
       name: "Member 4",
       role: "Presentation & Testing",
-      //image: member4,
+      image: member4,
       contribution:
         "Handled project documentation, presentation, testing, project planning, and overall hackathon coordination.",
     },
