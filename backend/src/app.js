@@ -13,7 +13,7 @@ const app = express();
 // Middleware
 app.use(
     cors({
-        origin: process.env.CLIENT_URL || "https://ai-teacher-seven-jade.vercel.app/",
+        origin: process.env.CLIENT_URL || process.env.FRONTEND_URL || "http://localhost:5173",
         credentials: true,
     })
 );
