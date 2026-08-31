@@ -5,61 +5,199 @@ const authRoutes = require("./routes/authRoutes");
 const lessonRoutes = require("./routes/lessonRoutes");
 const materialRoutes = require("./routes/materialRoutes");
 const adaptiveRoutes = require("./routes/adaptiveRoutes");
-const progressRoutes =
-  require("./routes/progressRoutes");
+const progressRoutes = require("./routes/progressRoutes");
 
 const app = express();
 
-// Middleware
+// =====================================================
+// CORS CONFIGURATION
+// =====================================================
+
+const allowedOrigins = [
+  "http://localhost:5173",
+
+  // Your Vercel frontend URL
+  process.env.CLIENT_URL,
+
+  // Optional alternative variable
+  process.env.FRONTEND_URL,
+].filter(Boolean);
+
+console.log("Allowed CORS origins:");
+console.log(allowedOrigins);
+
+// =====================================================
+// CORS
+// =====================================================
+
 app.use(
-    cors({
-        origin: process.env.CLIENT_URL || process.env.FRONTEND_URL || "http://localhost:5173",
-        credentials: true,
-    })
+  cors({
+    origin: function (origin, callback) {
+      // Allow Postman / server-to-server requests
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      console.log(
+        "CORS blocked origin:",
+        origin
+      );
+
+      return callback(
+        new Error(
+          `CORS blocked origin: ${origin}`
+        )
+      );
+    },
+
+    credentials: true,
+
+    methods: [
+      "GET",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "OPTIONS",
+    ],
+
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+    ],
+  })
 );
 
-app.use(express.json());
+// =====================================================
+// BODY PARSER
+// =====================================================
+
+app.use(
+  express.json()
+);
+
+// =====================================================
+// ROOT
+// =====================================================
 
 app.get("/", (req, res) => {
-    res.json({
-        success: true,
-        message: "Welcome to the AI Hackathon Project API",
-    });
+  res.status(200).json({
+    success: true,
+    message:
+      "Welcome to the AI Hackathon Project API",
+  });
 });
 
-//auth routes
-app.use("/api/auth", authRoutes);
-app.use("/api/lesson", lessonRoutes);
-app.use("/api/material", materialRoutes);
+// =====================================================
+// AUTH
+// =====================================================
+
+app.use(
+  "/api/auth",
+  authRoutes
+);
+
+// =====================================================
+// LESSON
+// =====================================================
+
+app.use(
+  "/api/lesson",
+  lessonRoutes
+);
+
+// =====================================================
+// MATERIAL
+// =====================================================
+
+app.use(
+  "/api/material",
+  materialRoutes
+);
+
+// =====================================================
+// ADAPTIVE
+// =====================================================
+
 app.use(
   "/api/adaptive",
   adaptiveRoutes
 );
+
+// =====================================================
+// PROGRESS
+// =====================================================
+
 app.use(
   "/api/progress",
   progressRoutes
 );
 
-app.use((req, res, next) => {
+// =====================================================
+// 404
+// =====================================================
+
+app.use(
+  (req, res) => {
     res.status(404).json({
-        success: false,
-        message: "Route not found",
+      success: false,
+      message: "Route not found",
     });
-});
+  }
+);
 
-app.use((err, req, res, next) => {
-  console.error("================================");
-  console.error("UPLOAD ERROR:");
-  console.error(err);
-  console.error("================================");
+// =====================================================
+// ERROR HANDLER
+// =====================================================
 
-  res.status(500).json({
-    success: false,
-    message: err.message || "Server error",
-    error: process.env.NODE_ENV === "development"
-      ? err.stack
-      : undefined,
-  });
-});
+app.use(
+  (err, req, res, next) => {
+    console.error(
+      "================================"
+    );
+
+    console.error(
+      "SERVER ERROR:"
+    );
+
+    console.error(
+      err.message
+    );
+
+    console.error(
+      "================================"
+    );
+
+    // CORS error
+    if (
+      err.message &&
+      err.message.startsWith(
+        "CORS blocked"
+      )
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: err.message,
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message:
+        err.message ||
+        "Server error",
+
+      error:
+        process.env.NODE_ENV ===
+        "development"
+          ? err.stack
+          : undefined,
+    });
+  }
+);
 
 module.exports = app;
