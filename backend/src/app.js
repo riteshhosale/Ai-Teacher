@@ -7,42 +7,57 @@ const materialRoutes = require("./routes/materialRoutes");
 const adaptiveRoutes = require("./routes/adaptiveRoutes");
 const progressRoutes = require("./routes/progressRoutes");
 
+// =====================================================
+// CREATE EXPRESS APP FIRST
+// =====================================================
+
 const app = express();
-
-// =====================================================
-// CORS CONFIGURATION
-// =====================================================
-
-const allowedOrigins = [
-  "http://localhost:5173",
-
-  // Your Vercel frontend URL
-  process.env.CLIENT_URL,
-
-  // Optional alternative variable
-  process.env.FRONTEND_URL,
-].filter(Boolean);
-
-console.log("Allowed CORS origins:");
-console.log(allowedOrigins);
 
 // =====================================================
 // CORS
 // =====================================================
 
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+
+  // Your Vercel frontend
+  "https://ai-teacher-seven-jade.vercel.app",
+
+  // Render environment variables
+  process.env.CLIENT_URL,
+  process.env.FRONTEND_URL,
+].filter(Boolean);
+
+console.log(
+  "Allowed CORS origins:",
+  allowedOrigins
+);
+
 app.use(
   cors({
-    origin: function (origin, callback) {
-      // Allow Postman / server-to-server requests
+    origin: (origin, callback) => {
+      // Allow requests without Origin
+      // e.g. Postman / curl
       if (!origin) {
         return callback(null, true);
       }
 
-      if (allowedOrigins.includes(origin)) {
+      // Exact origins
+      if (
+        allowedOrigins.includes(origin)
+      ) {
         return callback(null, true);
       }
 
-      console.log(
+      // Allow Vercel preview deployments
+      if (
+        origin.endsWith(".vercel.app")
+      ) {
+        return callback(null, true);
+      }
+
+      console.error(
         "CORS blocked origin:",
         origin
       );
@@ -81,7 +96,7 @@ app.use(
 );
 
 // =====================================================
-// ROOT
+// HEALTH CHECK
 // =====================================================
 
 app.get("/", (req, res) => {
@@ -92,8 +107,19 @@ app.get("/", (req, res) => {
   });
 });
 
+app.get(
+  "/api/health",
+  (req, res) => {
+    res.status(200).json({
+      success: true,
+      message:
+        "AI Teacher backend is running",
+    });
+  }
+);
+
 // =====================================================
-// AUTH
+// ROUTES
 // =====================================================
 
 app.use(
@@ -101,36 +127,20 @@ app.use(
   authRoutes
 );
 
-// =====================================================
-// LESSON
-// =====================================================
-
 app.use(
   "/api/lesson",
   lessonRoutes
 );
-
-// =====================================================
-// MATERIAL
-// =====================================================
 
 app.use(
   "/api/material",
   materialRoutes
 );
 
-// =====================================================
-// ADAPTIVE
-// =====================================================
-
 app.use(
   "/api/adaptive",
   adaptiveRoutes
 );
-
-// =====================================================
-// PROGRESS
-// =====================================================
 
 app.use(
   "/api/progress",
@@ -146,6 +156,7 @@ app.use(
     res.status(404).json({
       success: false,
       message: "Route not found",
+      path: req.originalUrl,
     });
   }
 );
@@ -174,8 +185,7 @@ app.use(
 
     // CORS error
     if (
-      err.message &&
-      err.message.startsWith(
+      err.message?.startsWith(
         "CORS blocked"
       )
     ) {
@@ -185,19 +195,17 @@ app.use(
       });
     }
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message:
         err.message ||
         "Server error",
-
-      error:
-        process.env.NODE_ENV ===
-        "development"
-          ? err.stack
-          : undefined,
     });
   }
 );
+
+// =====================================================
+// EXPORT
+// =====================================================
 
 module.exports = app;
