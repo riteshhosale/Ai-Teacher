@@ -7,6 +7,7 @@ import Dashboard from "./pages/Dashboard";
 import Learn from "./pages/Learn";
 import Lesson from "./pages/Lesson";
 import UploadMaterial from "./pages/UploadMaterial";
+import Progress from "./pages/Progress";
 
 function App() {
   return (
@@ -25,6 +26,11 @@ function App() {
         <Route path="/upload" element={<UploadMaterial />} />
 
         <Route path="/lesson" element={<Lesson />} />
+
+        <Route
+  path="/progress"
+  element={<Progress />}
+/>
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

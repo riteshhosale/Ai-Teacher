@@ -4,6 +4,9 @@ const cors = require("cors");
 const authRoutes = require("./routes/authRoutes");
 const lessonRoutes = require("./routes/lessonRoutes");
 const materialRoutes = require("./routes/materialRoutes");
+const adaptiveRoutes = require("./routes/adaptiveRoutes");
+const progressRoutes =
+  require("./routes/progressRoutes");
 
 const app = express();
 
@@ -28,6 +31,14 @@ app.get("/", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/lesson", lessonRoutes);
 app.use("/api/material", materialRoutes);
+app.use(
+  "/api/adaptive",
+  adaptiveRoutes
+);
+app.use(
+  "/api/progress",
+  progressRoutes
+);
 
 app.use((req, res, next) => {
     res.status(404).json({
