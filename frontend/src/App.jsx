@@ -8,6 +8,7 @@ import Learn from "./pages/Learn";
 import Lesson from "./pages/Lesson";
 import UploadMaterial from "./pages/UploadMaterial";
 import Progress from "./pages/Progress";
+import LearningPath from "./pages/LearningPath";
 
 function App() {
   return (
@@ -25,7 +26,15 @@ function App() {
 
         <Route path="/upload" element={<UploadMaterial />} />
 
-        <Route path="/lesson" element={<Lesson />} />
+        <Route
+  path="/learning-path"
+  element={<LearningPath />}
+/>
+
+        <Route
+  path="/lesson/:id"
+  element={<Lesson />}
+/>
 
         <Route
   path="/progress"

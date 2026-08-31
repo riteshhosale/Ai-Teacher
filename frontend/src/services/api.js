@@ -1,101 +1,158 @@
-const API_URL =
-  "https://ai-teacher-qrj7.onrender.com/api";
+const API_URL = "http://localhost:5000/api";
 
 // =====================================================
 // REGISTER
 // =====================================================
 
 export const registerUser = async (userData) => {
-  const response = await fetch(
-    `${API_URL}/auth/register`,
-    {
-      method: "POST",
+  try {
+    const response = await fetch(
+      `${API_URL}/auth/register`,
+      {
+        method: "POST",
 
-      headers: {
-        "Content-Type": "application/json",
-      },
+        headers: {
+          "Content-Type": "application/json",
+        },
 
-      body: JSON.stringify(userData),
-    }
-  );
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(
-      data.message ||
-        "Failed to register user"
+        body: JSON.stringify(userData),
+      }
     );
-  }
 
-  return data;
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.message ||
+          "Failed to register user"
+      );
+    }
+
+    return data;
+
+  } catch (error) {
+    console.error(
+      "Register API error:",
+      error
+    );
+
+    throw error;
+  }
 };
+
 
 // =====================================================
 // LOGIN
 // =====================================================
 
 export const loginUser = async (userData) => {
-  const response = await fetch(
-    `${API_URL}/auth/login`,
-    {
-      method: "POST",
-
-      headers: {
-        "Content-Type": "application/json",
-      },
-
-      body: JSON.stringify(userData),
-    }
-  );
-
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(
-      data.message ||
-        "Failed to login user"
+  try {
+    console.log(
+      "Login API:",
+      `${API_URL}/auth/login`
     );
-  }
 
-  return data;
+    console.log(
+      "Login data:",
+      {
+        email: userData.email,
+      }
+    );
+
+    const response = await fetch(
+      `${API_URL}/auth/login`,
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type": "application/json",
+        },
+
+        body: JSON.stringify(userData),
+      }
+    );
+
+    console.log(
+      "Login status:",
+      response.status
+    );
+
+    const data =
+      await response.json();
+
+    console.log(
+      "Login response:",
+      data
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        data.message ||
+          "Failed to login user"
+      );
+    }
+
+    return data;
+
+  } catch (error) {
+
+    console.error(
+      "Login API error:",
+      error
+    );
+
+    throw error;
+  }
 };
+
 
 // =====================================================
 // GET CURRENT USER
 // =====================================================
 
 export const getMe = async () => {
-  const token =
-    localStorage.getItem("token");
+  try {
 
-  if (!token) {
-    throw new Error(
-      "Authentication token not found"
-    );
-  }
+    const token =
+      localStorage.getItem("token");
 
-  const response = await fetch(
-    `${API_URL}/auth/me`,
-    {
-      method: "GET",
-
-      headers: {
-        Authorization:
-          `Bearer ${token}`,
-      },
+    if (!token) {
+      throw new Error(
+        "Authentication token not found"
+      );
     }
-  );
 
-  const data =
-    await response.json();
+    const response = await fetch(
+      `${API_URL}/auth/me`,
+      {
+        method: "GET",
 
-  if (!response.ok) {
-    throw new Error(
-      data.message ||
-        "Failed to fetch user data"
+        headers: {
+          Authorization:
+            `Bearer ${token}`,
+        },
+      }
     );
-  }
 
-  return data;
+    const data =
+      await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.message ||
+          "Failed to fetch user data"
+      );
+    }
+
+    return data;
+
+  } catch (error) {
+
+    console.error(
+      "GetMe API error:",
+      error
+    );
+
+    throw error;
+  }
 };

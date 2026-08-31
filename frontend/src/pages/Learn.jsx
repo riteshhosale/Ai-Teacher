@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 function Learn() {
@@ -10,10 +10,42 @@ function Learn() {
   const [time, setTime] = useState("30 minutes");
   const [learningMode, setLearningMode] = useState("Topic");
   const [loading, setLoading] = useState(false);
+  const [documents, setDocuments] = useState([]);
 
-  const uploadedMaterial = JSON.parse(
-  localStorage.getItem("uploadedMaterial") || "null"
-);
+  const [selectedDocument, setSelectedDocument] = useState("");
+
+  let uploadedMaterial = null;
+
+  try {
+    uploadedMaterial = JSON.parse(
+      localStorage.getItem("uploadedMaterial") || "null",
+    );
+  } catch (error) {
+    console.error("Invalid uploadedMaterial in localStorage:", error);
+  }
+
+  const loadDocuments = async () => {
+    try {
+      const token = localStorage.getItem("token");
+
+      const API_URL =
+        import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+
+      const response = await fetch(`${API_URL}/documents`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setDocuments(data.documents);
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  };
 
   const handleStartLesson = async (e) => {
     e.preventDefault();
@@ -39,23 +71,24 @@ function Learn() {
 
       console.log("Starting lesson generation...");
 
-      const response = await fetch(
-        "http://localhost:5000/api/lesson/generate",
-        "https://ai-teacher-qrj7.onrender.com/api/lesson/generate",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            topic,
-            level,
-            language,
-            time,
-          }),
+      const API_URL =
+        import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+
+      const response = await fetch(`${API_URL}/lesson/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-      );
+        body: JSON.stringify({
+          topic,
+          level,
+          language,
+          time,
+          learningMode,
+          selectedDocument,
+        }),
+      });
 
       const data = await response.json();
 
@@ -77,7 +110,7 @@ function Learn() {
         localStorage.setItem("lessonSources", JSON.stringify(data.sources));
       }
 
-      navigate("/lesson");
+      navigate(`/lesson/${data.lessonId}`);
     } catch (error) {
       console.error("Lesson generation error:", error);
 
@@ -157,6 +190,37 @@ function Learn() {
               </div>
             </div>
           )}
+        </div>
+
+        <div className="mt-7">
+          <label className="text-sm font-semibold">Study Material</label>
+
+          <select
+            value={selectedDocument}
+            onChange={(e) => setSelectedDocument(e.target.value)}
+            className="mt-2 w-full rounded-xl
+    border border-slate-300
+    bg-white px-4 py-3
+    outline-none
+    focus:border-indigo-500"
+          >
+            <option value="">General knowledge</option>
+
+            {documents.map((document) => (
+              <option key={document._id} value={document._id}>
+                {document.originalName}
+              </option>
+            ))}
+          </select>
+
+          <Link
+            to="/upload"
+            className="mt-2 inline-block
+    text-sm font-medium
+    text-indigo-600"
+          >
+            + Upload new material
+          </Link>
         </div>
 
         {/* ================= FORM ================= */}

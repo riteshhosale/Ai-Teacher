@@ -1,10 +1,19 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import AITeacher from "../components/AITeacher";
+import RealtimeTeacher from "../components/RealtimeTeacher";
+
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  "http://localhost:5000/api";
 
 function Lesson() {
   const navigate = useNavigate();
+  const { id } = useParams();
 
-  // ================= STATE =================
+  // =====================================================
+  // STATE
+  // =====================================================
 
   const [lessonData, setLessonData] = useState(null);
 
@@ -29,12 +38,9 @@ function Lesson() {
   const [adaptiveQuestions, setAdaptiveQuestions] =
     useState([]);
 
-  // FIX:
-  // This was missing while JSX was using isSpeaking.
-  const [isSpeaking, setIsSpeaking] =
-    useState(false);
-
-  // ================= LOAD LESSON =================
+  // =====================================================
+  // LOAD LESSON
+  // =====================================================
 
   useEffect(() => {
     const savedLesson =
@@ -51,6 +57,12 @@ function Lesson() {
       const parsedLesson =
         JSON.parse(savedLesson);
 
+      if (!parsedLesson) {
+        throw new Error(
+          "Lesson data is empty"
+        );
+      }
+
       setLessonData(parsedLesson);
 
       setCurrentStep(0);
@@ -63,6 +75,7 @@ function Lesson() {
       localStorage.removeItem(
         "adaptiveResult"
       );
+
     } catch (error) {
       console.error(
         "Invalid lesson data:",
@@ -77,7 +90,9 @@ function Lesson() {
     }
   }, [navigate]);
 
-  // ================= LOADING =================
+  // =====================================================
+  // LOADING
+  // =====================================================
 
   if (!lessonData) {
     return (
@@ -89,7 +104,9 @@ function Lesson() {
     );
   }
 
-  // ================= QUESTIONS =================
+  // =====================================================
+  // QUESTIONS
+  // =====================================================
 
   const normalQuestions =
     Array.isArray(
@@ -103,11 +120,11 @@ function Lesson() {
     ...adaptiveQuestions,
   ];
 
-  // ================= LESSON STEPS =================
+  // =====================================================
+  // LESSON STEPS
+  // =====================================================
 
   const lessonSteps = [
-    // ---------- EXPLANATION ----------
-
     {
       type: "explain",
 
@@ -119,8 +136,6 @@ function Lesson() {
         lessonData.explanation ||
         `Let's learn about ${lessonData.topic}.`,
     },
-
-    // ---------- EXAMPLES ----------
 
     {
       type: "example",
@@ -139,8 +154,6 @@ function Lesson() {
           : "Let's understand this concept with a practical example.",
     },
 
-    // ---------- DEMONSTRATION ----------
-
     {
       type: "demonstrate",
 
@@ -151,8 +164,6 @@ function Lesson() {
         lessonData.demonstration ||
         "Let's apply what we have learned.",
     },
-
-    // ---------- QUESTIONS ----------
 
     ...allQuestions.map(
       (question, index) => ({
@@ -184,8 +195,6 @@ function Lesson() {
       })
     ),
 
-    // ---------- FEEDBACK ----------
-
     {
       type: "adapt",
 
@@ -197,8 +206,6 @@ function Lesson() {
         lessonData.summary ||
         "You have completed the main part of the lesson.",
     },
-
-    // ---------- NEXT ----------
 
     {
       type: "next",
@@ -215,9 +222,9 @@ function Lesson() {
   const currentLesson =
     lessonSteps[currentStep];
 
-  // =================================================
+  // =====================================================
   // ANSWER
-  // =================================================
+  // =====================================================
 
   const handleAnswer = async () => {
     if (
@@ -234,7 +241,9 @@ function Lesson() {
       setEvaluating(true);
 
       const token =
-        localStorage.getItem("token");
+        localStorage.getItem(
+          "token"
+        );
 
       if (!token) {
         navigate("/login");
@@ -242,13 +251,25 @@ function Lesson() {
       }
 
       console.log(
-        "Evaluating answer..."
+        "================================"
+      );
+
+      console.log(
+        "EVALUATING ANSWER"
+      );
+
+      console.log(
+        "================================"
+      );
+
+      console.log(
+        "Answer:",
+        selectedAnswer
       );
 
       const response =
         await fetch(
-          "http://localhost:5000/api/adaptive/evaluate",
-          "https://ai-teacher-qrj7.onrender.com/api/adaptive/evaluate",
+          `${API_URL}/adaptive/evaluate`,
           {
             method: "POST",
 
@@ -302,7 +323,9 @@ function Lesson() {
         );
       }
 
-      // ================= FEEDBACK =================
+      // =================================================
+      // SAVE RESULT
+      // =================================================
 
       setAdaptiveResult(
         data.result
@@ -315,23 +338,25 @@ function Lesson() {
         )
       );
 
-      // ================= SCORE =================
+      // =================================================
+      // SCORE
+      // =================================================
 
-      if (
-        data.result.correct
-      ) {
+      if (data.result.correct) {
         setScore(
           (previous) =>
             previous + 1
         );
       }
 
-      // ================= MARK ANSWERED =================
+      // =================================================
+      // MARK ANSWERED
+      // =================================================
 
       setAnswered(true);
 
       // =================================================
-      // CREATE ONLY ONE ADAPTIVE QUESTION
+      // CREATE ONE ADAPTIVE QUESTION
       // =================================================
 
       const isNormalQuestion =
@@ -340,8 +365,10 @@ function Lesson() {
 
       if (
         isNormalQuestion &&
-        adaptiveQuestions.length === 0 &&
-        data.result.nextQuestion?.question
+        adaptiveQuestions.length ===
+          0 &&
+        data.result.nextQuestion
+          ?.question
       ) {
         const nextQuestion =
           data.result.nextQuestion;
@@ -387,28 +414,20 @@ function Lesson() {
     }
   };
 
-  // =================================================
+  // =====================================================
   // NEXT STEP
-  // =================================================
+  // =====================================================
 
   const handleNext = () => {
-    // Stop speech
     if (
-      "speechSynthesis" in
-      window
+      "speechSynthesis" in window
     ) {
       window.speechSynthesis.cancel();
     }
 
-    setIsSpeaking(false);
-
     setSelectedAnswer("");
 
     setAnswered(false);
-
-    setAdaptiveResult(null);
-
-    // ================= NEXT =================
 
     if (
       currentStep <
@@ -422,208 +441,86 @@ function Lesson() {
       return;
     }
 
-    // ================= FINISH =================
-
     finishLesson();
   };
 
-  // =================================================
+  // =====================================================
   // FINISH LESSON
-  // =================================================
+  // =====================================================
 
+  const finishLesson = async () => {
+    try {
+      const token = localStorage.getItem("token");
 
-const finishLesson = async () => {
-  try {
-    // ==========================================
-    // GET AUTH TOKEN
-    // ==========================================
-
-    const token =
-      localStorage.getItem("token");
-
-    if (!token) {
-      navigate("/login");
-      return;
-    }
-
-    // ==========================================
-    // GET ADAPTIVE RESULT
-    // ==========================================
-
-    let adaptiveResult = null;
-
-    const savedAdaptiveResult =
-      localStorage.getItem(
-        "adaptiveResult"
-      );
-
-    if (savedAdaptiveResult) {
-      try {
-        adaptiveResult =
-          JSON.parse(
-            savedAdaptiveResult
-          );
-      } catch (error) {
-        console.error(
-          "Invalid adaptive result:",
-          error
-        );
+      if (!token) {
+        navigate("/login");
+        return;
       }
-    }
 
-    // ==========================================
-    // WEAK TOPICS
-    // ==========================================
+      if (!id) {
+        throw new Error("Lesson ID is missing");
+      }
 
-    const weakTopics =
-      adaptiveResult?.correct === false
-        ? [lessonData.topic]
-        : [];
+      console.log("Completing lesson:", id);
 
-    // ==========================================
-    // QUESTION COUNT
-    // ==========================================
-
-    const normalQuestionCount =
-      Array.isArray(
-        lessonData.questions
-      )
-        ? lessonData.questions.length
-        : 0;
-
-    const adaptiveQuestionCount =
-      Array.isArray(
-        adaptiveQuestions
-      )
-        ? adaptiveQuestions.length
-        : 0;
-
-    const totalQuestions =
-      normalQuestionCount +
-      adaptiveQuestionCount;
-
-    // ==========================================
-    // SAVE PROGRESS
-    // ==========================================
-
-    console.log(
-      "Saving lesson progress..."
-    );
-
-    console.log({
-      topic: lessonData.topic,
-      score,
-      totalQuestions,
-      weakTopics,
-      nextTopic:
-        lessonData.nextTopic,
-    });
-
-    const response =
-      await fetch(
-        "http://localhost:5000/api/progress",
-        "https://ai-teacher-qrj7.onrender.com/api/progress",
+      const response = await fetch(
+        `${API_URL}/lessons/${id}/complete`,
         {
-          method: "POST",
+          method: "PATCH",
 
           headers: {
-            "Content-Type":
-              "application/json",
-
-            Authorization:
-              `Bearer ${token}`,
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
           },
 
           body: JSON.stringify({
-            topic:
-              lessonData.topic,
-
-            level:
-              lessonData.level,
-
-            language:
-              lessonData.language,
-
             score,
-
-            totalQuestions,
-
-            weakTopics,
-
-            nextTopic:
-              lessonData.nextTopic ||
-              "",
           }),
         }
       );
 
-    // ==========================================
-    // READ RESPONSE
-    // ==========================================
+      const data = await response.json();
 
-    const data =
-      await response.json();
-
-    // ==========================================
-    // HANDLE API ERROR
-    // ==========================================
-
-    if (!response.ok) {
-      console.error(
-        "Progress API error:",
+      console.log(
+        "Complete lesson response:",
         data
       );
 
-      alert(
-        data.message ||
-          "Failed to save progress"
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+            "Failed to complete lesson"
+        );
+      }
+
+      // Stop any browser speech before leaving.
+      if ("speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+
+      localStorage.removeItem("generatedLesson");
+      localStorage.removeItem("adaptiveResult");
+
+      navigate("/progress");
+
+    } catch (error) {
+      console.error(
+        "Finish lesson error:",
+        error
       );
 
-      return;
+      alert(
+        error.message ||
+          "Failed to save lesson"
+      );
     }
-
-    // ==========================================
-    // SUCCESS
-    // ==========================================
-
-    console.log(
-      "Lesson progress saved successfully"
-    );
-
-    // ==========================================
-    // CLEAN LOCAL STORAGE
-    // ==========================================
-
-    localStorage.removeItem(
-      "generatedLesson"
-    );
-
-    localStorage.removeItem(
-      "adaptiveResult"
-    );
-
-    // ==========================================
-    // GO TO PROGRESS PAGE
-    // ==========================================
-
-    navigate("/progress");
-
-  } catch (error) {
-    console.error(
-      "Finish lesson error:",
-      error
-    );
-
-    alert(
-      "Unable to save your progress. Please try again."
-    );
-  }
-};
+  };
 
 
-  // =================================================
+
+  // =====================================================
   // PROGRESS
-  // =================================================
+  // =====================================================
 
   const progress =
     lessonSteps.length > 0
@@ -632,128 +529,16 @@ const finishLesson = async () => {
         100
       : 0;
 
-  // =================================================
-  // VOICE
-  // =================================================
-
-  const speakText = (text) => {
-    if (
-      !("speechSynthesis" in
-        window)
-    ) {
-      alert(
-        "Text-to-speech is not supported in this browser."
-      );
-
-      return;
-    }
-
-    if (!text) {
-      return;
-    }
-
-    window.speechSynthesis.cancel();
-
-    setIsSpeaking(false);
-
-    const speech =
-      new SpeechSynthesisUtterance(
-        text
-      );
-
-    // Browser language mapping
-    const selectedLanguage =
-      String(
-        lessonData.language || ""
-      ).toLowerCase();
-
-    if (
-      selectedLanguage.includes(
-        "hindi"
-      )
-    ) {
-      speech.lang = "hi-IN";
-    } else if (
-      selectedLanguage.includes(
-        "marathi"
-      )
-    ) {
-      speech.lang = "mr-IN";
-    } else {
-      speech.lang = "en-US";
-    }
-
-    speech.rate = 0.9;
-    speech.pitch = 1;
-
-    speech.onstart = () => {
-      setIsSpeaking(true);
-    };
-
-    speech.onend = () => {
-      setIsSpeaking(false);
-    };
-
-    speech.onerror = () => {
-      setIsSpeaking(false);
-    };
-
-    window.speechSynthesis.speak(
-      speech
-    );
-  };
-
-  // =================================================
-  // VOICE BUTTON
-  // =================================================
-
-  const handleVoice = () => {
-    if (
-      !("speechSynthesis" in
-        window)
-    ) {
-      alert(
-        "Text-to-speech is not supported in this browser."
-      );
-
-      return;
-    }
-
-    if (isSpeaking) {
-      window.speechSynthesis.cancel();
-
-      setIsSpeaking(false);
-
-      return;
-    }
-
-    let textToSpeak = "";
-
-    if (
-      currentLesson.type ===
-      "question"
-    ) {
-      textToSpeak =
-        `${currentLesson.question}. Options are: ${currentLesson.options.join(
-          ". "
-        )}`;
-    } else {
-      textToSpeak =
-        currentLesson.content ||
-        currentLesson.title;
-    }
-
-    speakText(textToSpeak);
-  };
-
-  // =================================================
+  // =====================================================
   // RENDER
-  // =================================================
+  // =====================================================
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
 
-      {/* ================= NAVBAR ================= */}
+      {/* =================================================
+          NAVBAR
+      ================================================= */}
 
       <nav className="border-b border-white/10 bg-slate-950">
 
@@ -800,7 +585,9 @@ const finishLesson = async () => {
 
       </nav>
 
-      {/* ================= PROGRESS ================= */}
+      {/* =================================================
+          PROGRESS
+      ================================================= */}
 
       <div className="border-b border-white/10 bg-slate-900">
 
@@ -835,73 +622,51 @@ const finishLesson = async () => {
 
       </div>
 
-      {/* ================= MAIN ================= */}
+      {/* =================================================
+          MAIN
+      ================================================= */}
 
       <main className="mx-auto max-w-7xl px-5 py-8">
 
         <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
 
-          {/* ================= TEACHING AREA ================= */}
+          {/* =================================================
+              TEACHING AREA
+          ================================================= */}
 
           <section className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900">
 
-            {/* ================= AI TEACHER ================= */}
+            {/* =================================================
+                AI TEACHER COMPONENT
+            ================================================= */}
 
-            <div className="relative flex aspect-video items-center justify-center bg-gradient-to-br from-indigo-950 via-slate-900 to-purple-950">
+            <div className="border-b border-white/10">
 
-              <div className="text-center">
+              <AITeacher
+                text={`
+${lessonData.introduction || ""}
 
-                <div
-                  className={`mx-auto flex h-32 w-32 items-center justify-center rounded-full border-4 ${
-                    isSpeaking
-                      ? "border-green-400/60 bg-green-500/20"
-                      : "border-indigo-400/30 bg-indigo-600/20"
-                  } text-5xl transition`}
-                >
-                  👨‍🏫
-                </div>
+${lessonData.explanation || ""}
 
-                <p className="mt-4 text-lg font-semibold">
-                  AI Teacher
-                </p>
-
-                <div className="mt-2 flex items-center justify-center gap-2">
-
-                  <span
-                    className={`h-2 w-2 rounded-full ${
-                      isSpeaking
-                        ? "animate-pulse bg-green-400"
-                        : "bg-slate-500"
-                    }`}
-                  />
-
-                  <span className="text-sm text-slate-400">
-                    {isSpeaking
-                      ? "Speaking..."
-                      : "Ready to teach"}
-                  </span>
-
-                </div>
-
-              </div>
-
-              {/* VOICE */}
-
-              <button
-                type="button"
-                onClick={
-                  handleVoice
+${lessonData.demonstration || ""}
+                `}
+                language={
+                  lessonData.language
                 }
-                className="absolute bottom-5 right-5 rounded-xl bg-white/10 px-4 py-3 text-sm font-semibold backdrop-blur transition hover:bg-white/20"
-              >
-                {isSpeaking
-                  ? "⏹ Stop Voice"
-                  : "🔊 Start Voice"}
-              </button>
+              />
 
             </div>
 
-            {/* ================= CONTENT ================= */}
+            <RealtimeTeacher
+  topic={lessonData.topic}
+  level={lessonData.level}
+  language={lessonData.language}
+  context={lessonData.explanation}
+/>
+
+            {/* =================================================
+                CONTENT
+            ================================================= */}
 
             <div className="p-6 sm:p-8">
 
@@ -941,51 +706,45 @@ const finishLesson = async () => {
                 {currentLesson.title}
               </h1>
 
-              {/* ================= NORMAL CONTENT ================= */}
+              {/* =================================================
+                  NORMAL CONTENT
+              ================================================= */}
 
-              {(
-                currentLesson.type ===
-                  "explain" ||
-                currentLesson.type ===
-                  "example" ||
-                currentLesson.type ===
-                  "demonstrate" ||
-                currentLesson.type ===
-                  "adapt" ||
-                currentLesson.type ===
-                  "next"
+              {[
+                "explain",
+                "example",
+                "demonstrate",
+                "adapt",
+                "next",
+              ].includes(
+                currentLesson.type
               ) && (
 
                 <div className="mt-5 max-w-3xl">
 
-                  {(
-                    currentLesson.content ||
-                    ""
-                  )
-                    .split(
-                      "\n\n"
-                    )
+                  {(currentLesson.content ||
+                    "")
+                    .split("\n\n")
                     .map(
                       (
                         paragraph,
                         index
                       ) => (
-
                         <p
                           key={index}
                           className="mb-4 whitespace-pre-line leading-8 text-slate-300"
                         >
                           {paragraph}
                         </p>
-
                       )
                     )}
 
                 </div>
-
               )}
 
-              {/* ================= QUESTION ================= */}
+              {/* =================================================
+                  QUESTION
+              ================================================= */}
 
               {currentLesson.type ===
                 "question" && (
@@ -1071,7 +830,9 @@ const finishLesson = async () => {
 
                   )}
 
-                  {/* ================= FEEDBACK ================= */}
+                  {/* =================================================
+                      FEEDBACK
+                  ================================================= */}
 
                   {answered &&
                     adaptiveResult && (
@@ -1169,14 +930,14 @@ const finishLesson = async () => {
                       )}
 
                     </div>
-
                   )}
 
                 </div>
-
               )}
 
-              {/* ================= CONTINUE FOR NON QUESTION ================= */}
+              {/* =================================================
+                  CONTINUE NON QUESTION
+              ================================================= */}
 
               {currentLesson.type !==
                 "question" && (
@@ -1196,7 +957,9 @@ const finishLesson = async () => {
 
               )}
 
-              {/* ================= CONTINUE AFTER QUESTION ================= */}
+              {/* =================================================
+                  CONTINUE AFTER QUESTION
+              ================================================= */}
 
               {currentLesson.type ===
                 "question" &&
@@ -1209,7 +972,10 @@ const finishLesson = async () => {
                   }
                   className="mt-5 rounded-xl bg-indigo-600 px-7 py-3 font-semibold transition hover:bg-indigo-700"
                 >
-                  Continue →
+                  {currentStep ===
+                  lessonSteps.length - 1
+                    ? "Finish Lesson"
+                    : "Continue →"}
                 </button>
 
               )}
@@ -1218,7 +984,9 @@ const finishLesson = async () => {
 
           </section>
 
-          {/* ================= SIDEBAR ================= */}
+          {/* =================================================
+              SIDEBAR
+          ================================================= */}
 
           <aside className="space-y-5">
 
@@ -1280,8 +1048,7 @@ const finishLesson = async () => {
                   number="01"
                   title="Explain"
                   active={
-                    currentStep >=
-                    0
+                    currentStep >= 0
                   }
                 />
 
@@ -1289,8 +1056,7 @@ const finishLesson = async () => {
                   number="02"
                   title="Examples"
                   active={
-                    currentStep >=
-                    1
+                    currentStep >= 1
                   }
                 />
 
@@ -1298,8 +1064,7 @@ const finishLesson = async () => {
                   number="03"
                   title="Demonstrate"
                   active={
-                    currentStep >=
-                    2
+                    currentStep >= 2
                   }
                 />
 
@@ -1309,8 +1074,7 @@ const finishLesson = async () => {
                   active={
                     currentLesson.type ===
                       "question" ||
-                    currentStep >=
-                      3
+                    currentStep >= 3
                   }
                 />
 
@@ -1358,7 +1122,7 @@ const finishLesson = async () => {
 }
 
 // =====================================================
-// INFO
+// INFO COMPONENT
 // =====================================================
 
 function Info({
@@ -1381,7 +1145,7 @@ function Info({
 }
 
 // =====================================================
-// PROCESS
+// PROCESS COMPONENT
 // =====================================================
 
 function Process({

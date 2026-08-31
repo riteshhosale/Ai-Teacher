@@ -1,58 +1,75 @@
+require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
 
-const authRoutes = require("./routes/authRoutes");
-const lessonRoutes = require("./routes/lessonRoutes");
-const materialRoutes = require("./routes/materialRoutes");
-const adaptiveRoutes = require("./routes/adaptiveRoutes");
-const progressRoutes = require("./routes/progressRoutes");
+// =========================
+// ROUTES
+// =========================
 
-// =====================================================
-// CREATE EXPRESS APP FIRST
-// =====================================================
+const authRoutes =
+  require("./routes/authRoutes");
+
+const materialRoutes =
+  require("./routes/materialRoutes");
+
+const lessonRoutes =
+  require("./routes/lessonRoutes");
+
+const adaptiveRoutes =
+  require("./routes/adaptiveRoutes");
+
+const progressRoutes =
+  require("./routes/progressRoutes");
+
+const lessonHistoryRoutes =
+  require("./routes/lessonHistoryRoutes");
+
+const recommendationRoutes =
+  require("./routes/recommendationRoutes");
+
+const documentRoutes =
+  require("./routes/documentRoutes");
+
+const ragRoutes =
+  require("./routes/ragRoutes");
+
+const speechRoutes =
+  require("./routes/speechRoutes");
+
+const realtimeRoutes =
+  require("./routes/realtimeRoutes");
+
+
+// =========================
+// APP
+// =========================
 
 const app = express();
 
-// =====================================================
+
+// =========================
 // CORS
-// =====================================================
+// =========================
 
 const allowedOrigins = [
   "http://localhost:5173",
-  "http://localhost:3000",
-
-  // Your Vercel frontend
+  "http://127.0.0.1:5173",
   "https://ai-teacher-seven-jade.vercel.app",
-
-  // Render environment variables
-  process.env.CLIENT_URL,
-  process.env.FRONTEND_URL,
-].filter(Boolean);
-
-console.log(
-  "Allowed CORS origins:",
-  allowedOrigins
-);
+];
 
 app.use(
   cors({
-    origin: (origin, callback) => {
+    origin: function (origin, callback) {
+
       // Allow requests without Origin
-      // e.g. Postman / curl
+      // such as Postman/server-to-server
       if (!origin) {
         return callback(null, true);
       }
 
-      // Exact origins
       if (
         allowedOrigins.includes(origin)
-      ) {
-        return callback(null, true);
-      }
-
-      // Allow Vercel preview deployments
-      if (
-        origin.endsWith(".vercel.app")
       ) {
         return callback(null, true);
       }
@@ -87,40 +104,40 @@ app.use(
   })
 );
 
-// =====================================================
+
+// =========================
 // BODY PARSER
-// =====================================================
+// =========================
 
 app.use(
-  express.json()
+  express.json({
+    limit: "10mb",
+  })
 );
 
-// =====================================================
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: "10mb",
+  })
+);
+
+
+// =========================
 // HEALTH CHECK
-// =====================================================
+// =========================
 
 app.get("/", (req, res) => {
   res.status(200).json({
     success: true,
-    message:
-      "Welcome to the AI Hackathon Project API",
+    message: "AI Teacher API is running",
   });
 });
 
-app.get(
-  "/api/health",
-  (req, res) => {
-    res.status(200).json({
-      success: true,
-      message:
-        "AI Teacher backend is running",
-    });
-  }
-);
 
-// =====================================================
-// ROUTES
-// =====================================================
+// =========================
+// API ROUTES
+// =========================
 
 app.use(
   "/api/auth",
@@ -128,13 +145,13 @@ app.use(
 );
 
 app.use(
-  "/api/lesson",
-  lessonRoutes
+  "/api/material",
+  materialRoutes
 );
 
 app.use(
-  "/api/material",
-  materialRoutes
+  "/api/lesson",
+  lessonRoutes
 );
 
 app.use(
@@ -147,23 +164,59 @@ app.use(
   progressRoutes
 );
 
-// =====================================================
-// 404
-// =====================================================
-
 app.use(
-  (req, res) => {
-    res.status(404).json({
-      success: false,
-      message: "Route not found",
-      path: req.originalUrl,
-    });
-  }
+  "/api/lessons",
+  lessonHistoryRoutes
 );
 
-// =====================================================
+app.use(
+  "/api/recommendations",
+  recommendationRoutes
+);
+
+app.use(
+  "/api/documents",
+  documentRoutes
+);
+
+app.use(
+  "/api/rag",
+  ragRoutes
+);
+
+app.use(
+  "/api/speech",
+  speechRoutes
+);
+
+app.use(
+  "/api/realtime",
+  realtimeRoutes
+);
+
+
+// =========================
+// 404
+// =========================
+
+app.use((req, res) => {
+  console.log(
+    "404 Route:",
+    req.method,
+    req.originalUrl
+  );
+
+  res.status(404).json({
+    success: false,
+    message: "API route not found",
+    path: req.originalUrl,
+  });
+});
+
+
+// =========================
 // ERROR HANDLER
-// =====================================================
+// =========================
 
 app.use(
   (err, req, res, next) => {
@@ -186,7 +239,7 @@ app.use(
     // CORS error
     if (
       err.message?.startsWith(
-        "CORS blocked"
+        "CORS blocked origin"
       )
     ) {
       return res.status(403).json({
@@ -199,13 +252,14 @@ app.use(
       success: false,
       message:
         err.message ||
-        "Server error",
+        "Internal server error",
     });
   }
 );
 
-// =====================================================
+
+// =========================
 // EXPORT
-// =====================================================
+// =========================
 
 module.exports = app;

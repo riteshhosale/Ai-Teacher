@@ -5,10 +5,28 @@ const connectDB = require("./src/config/db");
 
 const PORT = process.env.PORT || 5000;
 
-// Connect to the database
+console.log(
+  "JWT_SECRET:",
+  process.env.JWT_SECRET
+    ? "Loaded"
+    : "Missing"
+);
+
+console.log(
+  "GEMINI_API_KEY:",
+  process.env.GEMINI_API_KEY
+    ? "Loaded"
+    : "Missing"
+);
+
 connectDB();
 
-// Start the server
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+app.listen(
+  PORT,
+  "0.0.0.0",
+  () => {
+    console.log(
+      `Server is running on port ${PORT}`
+    );
+  }
+);

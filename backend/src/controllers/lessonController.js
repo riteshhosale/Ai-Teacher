@@ -6,6 +6,7 @@ const {
 
 const searchKnowledge =
   require("../utils/searchKnowledge");
+const Lesson = require("../models/Lesson");
 
 // =====================================================
 // GEMINI CLIENT
