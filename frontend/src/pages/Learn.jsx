@@ -41,6 +41,7 @@ function Learn() {
 
       const response = await fetch(
         "http://localhost:5000/api/lesson/generate",
+        "https://ai-teacher-qrj7.onrender.com/api/lesson/generate",
         {
           method: "POST",
           headers: {

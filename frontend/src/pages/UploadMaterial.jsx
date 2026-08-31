@@ -89,6 +89,7 @@ function UploadMaterial() {
 
       const response = await fetch(
         "http://localhost:5000/api/material/upload",
+        "https://ai-teacher-qrj7.onrender.com/api/material/upload",
         {
           method: "POST",
 

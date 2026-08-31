@@ -33,6 +33,7 @@ function Progress() {
 
         fetch(
           "http://localhost:5000/api/progress/summary",
+          "https://ai-teacher-qrj7.onrender.com/api/progress/summary",
           {
             headers: {
               Authorization:
@@ -43,6 +44,7 @@ function Progress() {
 
         fetch(
           "http://localhost:5000/api/progress",
+          "https://ai-teacher-qrj7.onrender.com/api/progress",
           {
             headers: {
               Authorization:

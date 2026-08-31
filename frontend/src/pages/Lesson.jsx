@@ -248,6 +248,7 @@ function Lesson() {
       const response =
         await fetch(
           "http://localhost:5000/api/adaptive/evaluate",
+          "https://ai-teacher-qrj7.onrender.com/api/adaptive/evaluate",
           {
             method: "POST",
 
@@ -521,6 +522,7 @@ const finishLesson = async () => {
     const response =
       await fetch(
         "http://localhost:5000/api/progress",
+        "https://ai-teacher-qrj7.onrender.com/api/progress",
         {
           method: "POST",
 

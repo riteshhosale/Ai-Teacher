@@ -1,4 +1,5 @@
 const API_URL = "http://localhost:5000/api";
+"https://ai-teacher-qrj7.onrender.com/api";
 
 export const registerUser = async (userData) => {
     const response = await fetch(`${API_URL}/auth/register`, {
