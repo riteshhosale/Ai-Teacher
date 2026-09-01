@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import PropTypes from "prop-types";
 
 function AITeacher({
   text,
@@ -60,6 +61,28 @@ function AITeacher({
   };
 
   // =====================================================
+  // SETUP AUDIO HANDLERS
+  // =====================================================
+
+  const setupAudioHandlers = (audioElement) => {
+    audioElement.onplay = () => {
+      setSpeaking(true);
+    };
+
+    audioElement.onended = () => {
+      setSpeaking(false);
+    };
+
+    audioElement.onerror = () => {
+      console.error(
+        "Gemini audio playback failed"
+      );
+
+      setSpeaking(false);
+    };
+  };
+
+  // =====================================================
   // STOP AUDIO
   // =====================================================
 
@@ -95,21 +118,7 @@ function AITeacher({
 
       setAudio(newAudio);
 
-      newAudio.onplay = () => {
-        setSpeaking(true);
-      };
-
-      newAudio.onended = () => {
-        setSpeaking(false);
-      };
-
-      newAudio.onerror = () => {
-        console.error(
-          "Gemini audio playback failed"
-        );
-
-        setSpeaking(false);
-      };
+      setupAudioHandlers(newAudio);
 
       await newAudio.play();
 
@@ -231,21 +240,7 @@ function AITeacher({
 
       setAudio(newAudio);
 
-      newAudio.onplay = () => {
-        setSpeaking(true);
-      };
-
-      newAudio.onended = () => {
-        setSpeaking(false);
-      };
-
-      newAudio.onerror = () => {
-        console.error(
-          "Gemini audio playback failed"
-        );
-
-        setSpeaking(false);
-      };
+      setupAudioHandlers(newAudio);
 
       await newAudio.play();
 
@@ -542,5 +537,10 @@ function AITeacher({
     </div>
   );
 }
+
+AITeacher.propTypes = {
+  text: PropTypes.string.isRequired,
+  language: PropTypes.string,
+};
 
 export default AITeacher;
