@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 function AITeacher({ text, language = "English" }) {
   const [speaking, setSpeaking] = useState(false);
@@ -7,7 +7,7 @@ function AITeacher({ text, language = "English" }) {
 
   const [audioUrl, setAudioUrl] = useState("");
 
-  const [audio, setAudio] = useState(null);
+  const audioRef = useRef(null);
 
   // =====================================================
   // API URL
@@ -43,9 +43,12 @@ function AITeacher({ text, language = "English" }) {
   // =====================================================
 
   const stopAudio = () => {
-    if (audio) {
-      audio.pause();
-      audio.currentTime = 0;
+    const currentAudio = audioRef.current;
+
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio.currentTime = 0;
+      currentAudio.src = "";
     }
 
     if ("speechSynthesis" in window) {
@@ -53,6 +56,7 @@ function AITeacher({ text, language = "English" }) {
     }
 
     setSpeaking(false);
+    audioRef.current = null;
   };
 
   // =====================================================
@@ -69,7 +73,7 @@ function AITeacher({ text, language = "English" }) {
 
       const newAudio = new Audio(audioUrl);
 
-      setAudio(newAudio);
+      audioRef.current = newAudio;
 
       newAudio.onplay = () => {
         setSpeaking(true);
@@ -168,7 +172,7 @@ function AITeacher({ text, language = "English" }) {
       // Play immediately
       const newAudio = new Audio(url);
 
-      setAudio(newAudio);
+      audioRef.current = newAudio;
 
       newAudio.onplay = () => {
         setSpeaking(true);
@@ -259,9 +263,12 @@ function AITeacher({ text, language = "English" }) {
 
   useEffect(() => {
     return () => {
-      if (audio) {
-        audio.pause();
-        audio.currentTime = 0;
+      const currentAudio = audioRef.current;
+
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
+        currentAudio.src = "";
       }
 
       if ("speechSynthesis" in window) {
@@ -272,7 +279,7 @@ function AITeacher({ text, language = "English" }) {
         URL.revokeObjectURL(audioUrl);
       }
     };
-  }, [audioUrl, audio]);
+  }, [audioUrl]);
 
   // =====================================================
   // UI
@@ -386,7 +393,7 @@ function AITeacher({ text, language = "English" }) {
                 }
 
                 setAudioUrl("");
-                setAudio(null);
+                audioRef.current = null;
               }}
               className="text-xs text-slate-500 hover:text-white"
             >

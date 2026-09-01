@@ -201,11 +201,12 @@ function RealtimeTeacher({ topic, level, language, context }) {
   // =====================================================
 
   useEffect(() => {
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
+    const currentAudio = audioRef.current;
 
-        audioRef.current.currentTime = 0;
+    return () => {
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
       }
     };
   }, []);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import TeachingScene from "../components/TeachingScene";
 
@@ -14,17 +14,7 @@ function TeachingVideo() {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    if (!id) {
-      setError("Lesson ID is missing.");
-      setLoading(false);
-      return;
-    }
-
-    generateScenes();
-  }, [id]);
-
-  const generateScenes = async () => {
+  const generateScenes = useCallback(async () => {
     try {
       setLoading(true);
       setGenerating(true);
@@ -73,7 +63,39 @@ function TeachingVideo() {
       setLoading(false);
       setGenerating(false);
     }
-  };
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) {
+      return;
+    }
+
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void generateScenes();
+  }, [generateScenes, id]);
+
+  if (!id) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-5">
+        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center">
+          <div className="text-5xl">🎬</div>
+
+          <h2 className="mt-4 text-xl font-bold text-slate-900">
+            Unable to generate teaching video
+          </h2>
+
+          <p className="mt-2 text-sm text-slate-500">Lesson ID is missing.</p>
+
+          <Link
+            to="/dashboard"
+            className="mt-6 inline-block rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700"
+          >
+            Back to Dashboard
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   if (loading || generating) {
     return (

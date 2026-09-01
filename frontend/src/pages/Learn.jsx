@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 function Learn() {
@@ -24,7 +24,7 @@ function Learn() {
     console.error("Invalid uploadedMaterial in localStorage:", error);
   }
 
-  const loadDocuments = async () => {
+  const loadDocuments = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
 
@@ -41,12 +41,17 @@ function Learn() {
       const data = await response.json();
 
       if (data.success) {
-        setDocuments(data.documents);
+        setDocuments(Array.isArray(data.documents) ? data.documents : []);
       }
     } catch (error) {
       console.error(error);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadDocuments();
+  }, [loadDocuments]);
 
   const handleStartLesson = async (e) => {
     e.preventDefault();

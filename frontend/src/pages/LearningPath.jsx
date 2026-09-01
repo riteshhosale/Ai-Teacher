@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 const API_URL =
@@ -11,11 +11,7 @@ function LearningPath() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    loadLearningPath();
-  }, []);
-
-  const loadLearningPath = async () => {
+  const loadLearningPath = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
 
@@ -44,7 +40,12 @@ function LearningPath() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [navigate]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadLearningPath();
+  }, [loadLearningPath]);
 
   if (loading) {
     return (

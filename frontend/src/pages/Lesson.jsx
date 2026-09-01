@@ -24,7 +24,29 @@ function Lesson() {
   // STATE
   // =====================================================
 
-  const [lessonData, setLessonData] = useState(null);
+  const [lessonData] = useState(() => {
+    const savedLesson = localStorage.getItem("generatedLesson");
+
+    if (!savedLesson) {
+      return null;
+    }
+
+    try {
+      const parsedLesson = JSON.parse(savedLesson);
+
+      if (!parsedLesson) {
+        localStorage.removeItem("generatedLesson");
+        return null;
+      }
+
+      localStorage.removeItem("adaptiveResult");
+      return parsedLesson;
+    } catch (error) {
+      console.error("Invalid lesson data:", error);
+      localStorage.removeItem("generatedLesson");
+      return null;
+    }
+  });
 
   const [currentStep, setCurrentStep] = useState(0);
 
@@ -40,43 +62,11 @@ function Lesson() {
 
   const [adaptiveQuestions, setAdaptiveQuestions] = useState([]);
 
-  // =====================================================
-  // LOAD LESSON
-  // =====================================================
-
   useEffect(() => {
-    const savedLesson = localStorage.getItem("generatedLesson");
-
-    if (!savedLesson) {
-      navigate("/learn");
-      return;
-    }
-
-    try {
-      const parsedLesson = JSON.parse(savedLesson);
-
-      if (!parsedLesson) {
-        throw new Error("Lesson data is empty");
-      }
-
-      setLessonData(parsedLesson);
-
-      setCurrentStep(0);
-      setSelectedAnswer("");
-      setAnswered(false);
-      setScore(0);
-      setAdaptiveResult(null);
-      setAdaptiveQuestions([]);
-
-      localStorage.removeItem("adaptiveResult");
-    } catch (error) {
-      console.error("Invalid lesson data:", error);
-
-      localStorage.removeItem("generatedLesson");
-
+    if (!lessonData) {
       navigate("/learn");
     }
-  }, [navigate]);
+  }, [lessonData, navigate]);
 
   // =====================================================
   // STOP SPEECH WHEN LEAVING

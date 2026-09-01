@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 const API_URL =
@@ -16,11 +16,7 @@ function Dashboard() {
   // LOAD DASHBOARD
   // =====================================================
 
-  useEffect(() => {
-    loadDashboard();
-  }, []);
-
-  const loadDashboard = async () => {
+  const loadDashboard = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
 
@@ -116,7 +112,12 @@ function Dashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [navigate]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadDashboard();
+  }, [loadDashboard]);
 
   // =====================================================
   // LOGOUT

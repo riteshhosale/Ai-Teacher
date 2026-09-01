@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 const API_URL =
@@ -11,11 +11,7 @@ function Progress() {
 
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadProgress();
-  }, []);
-
-  const loadProgress = async () => {
+  const loadProgress = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
 
@@ -49,7 +45,12 @@ function Progress() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadProgress();
+  }, [loadProgress]);
 
   if (loading) {
     return (

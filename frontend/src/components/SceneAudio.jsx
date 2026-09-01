@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const API_URL =
   import.meta.env.VITE_API_URL || "https://ai-teacher-qrj7.onrender.com/api";
 
 function SceneAudio({ script, language, autoPlay = false }) {
   const audioRef = useRef(null);
+  const latestAudioUrlRef = useRef("");
 
   const [audioUrl, setAudioUrl] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const generateAudio = async () => {
+  const generateAudio = useCallback(async () => {
     try {
       setLoading(true);
 
@@ -17,13 +18,10 @@ function SceneAudio({ script, language, autoPlay = false }) {
 
       const response = await fetch(`${API_URL}/speech/generate`, {
         method: "POST",
-
         headers: {
           "Content-Type": "application/json",
-
           Authorization: `Bearer ${token}`,
         },
-
         body: JSON.stringify({
           text: script,
           language,
@@ -35,28 +33,47 @@ function SceneAudio({ script, language, autoPlay = false }) {
       }
 
       const blob = await response.blob();
-
       const url = URL.createObjectURL(blob);
 
+      if (latestAudioUrlRef.current) {
+        URL.revokeObjectURL(latestAudioUrlRef.current);
+      }
+
+      latestAudioUrlRef.current = url;
       setAudioUrl(url);
     } catch (error) {
       console.error(error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [language, script]);
 
   useEffect(() => {
-    if (script) {
-      generateAudio();
+    if (!script) {
+      return undefined;
     }
 
+    let isCancelled = false;
+
+    const run = async () => {
+      if (isCancelled) {
+        return;
+      }
+
+      await generateAudio();
+    };
+
+    void run();
+
     return () => {
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl);
+      isCancelled = true;
+
+      if (latestAudioUrlRef.current) {
+        URL.revokeObjectURL(latestAudioUrlRef.current);
+        latestAudioUrlRef.current = "";
       }
     };
-  }, [script]);
+  }, [generateAudio, script]);
 
   useEffect(() => {
     if (autoPlay && audioRef.current && audioUrl) {
