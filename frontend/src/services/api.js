@@ -1,57 +1,158 @@
 const API_URL = "http://localhost:5000/api";
 
+// =====================================================
+// REGISTER
+// =====================================================
+
 export const registerUser = async (userData) => {
-    const response = await fetch(`${API_URL}/auth/register`, {
+  try {
+    const response = await fetch(
+      `${API_URL}/auth/register`,
+      {
         method: "POST",
+
         headers: {
-            "Content-Type": "application/json",
+          "Content-Type": "application/json",
         },
+
         body: JSON.stringify(userData),
-    });
+      }
+    );
 
     const data = await response.json();
 
     if (!response.ok) {
-        throw new Error(data.message || "Failed to register user");
+      throw new Error(
+        data.message ||
+          "Failed to register user"
+      );
     }
 
     return data;
+
+  } catch (error) {
+    console.error(
+      "Register API error:",
+      error
+    );
+
+    throw error;
+  }
 };
+
+
+// =====================================================
+// LOGIN
+// =====================================================
 
 export const loginUser = async (userData) => {
-    const response = await fetch(`${API_URL}/auth/login`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-        },
-        body: JSON.stringify(userData),
-    });
+  try {
+    console.log(
+      "Login API:",
+      `${API_URL}/auth/login`
+    );
 
-    const data = await response.json();
+    console.log(
+      "Login data:",
+      {
+        email: userData.email,
+      }
+    );
+
+    const response = await fetch(
+      `${API_URL}/auth/login`,
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type": "application/json",
+        },
+
+        body: JSON.stringify(userData),
+      }
+    );
+
+    console.log(
+      "Login status:",
+      response.status
+    );
+
+    const data =
+      await response.json();
+
+    console.log(
+      "Login response:",
+      data
+    );
 
     if (!response.ok) {
-        throw new Error(data.message || "Failed to login user");
+      throw new Error(
+        data.message ||
+          "Failed to login user"
+      );
     }
 
     return data;
+
+  } catch (error) {
+
+    console.error(
+      "Login API error:",
+      error
+    );
+
+    throw error;
+  }
 };
 
+
+// =====================================================
+// GET CURRENT USER
+// =====================================================
+
 export const getMe = async () => {
-    const token = localStorage.getItem("token");
+  try {
 
-    const response = await fetch(`${API_URL}/auth/me`, {
+    const token =
+      localStorage.getItem("token");
+
+    if (!token) {
+      throw new Error(
+        "Authentication token not found"
+      );
+    }
+
+    const response = await fetch(
+      `${API_URL}/auth/me`,
+      {
         method: "GET",
-        headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-        },
-    });
 
-    const data = await response.json();
+        headers: {
+          Authorization:
+            `Bearer ${token}`,
+        },
+      }
+    );
+
+    const data =
+      await response.json();
 
     if (!response.ok) {
-        throw new Error(data.message || "Failed to fetch user data");
+      throw new Error(
+        data.message ||
+          "Failed to fetch user data"
+      );
     }
 
     return data;
+
+  } catch (error) {
+
+    console.error(
+      "GetMe API error:",
+      error
+    );
+
+    throw error;
+  }
 };
