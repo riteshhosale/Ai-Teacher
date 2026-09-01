@@ -1,9 +1,7 @@
 const Lesson = require("../models/Lesson");
 const TeachingVideo = require("../models/TeachingVideo");
 
-const {
-  generateTeachingScenes,
-} = require("../services/lessonSceneService");
+const { generateTeachingScenes } = require("../services/lessonSceneService");
 
 const {
   generateAvatarVideo,
@@ -29,10 +27,7 @@ const generateVideo = async (req, res) => {
     // USER ID
     // ======================================
 
-    const userId =
-      req.user?._id ||
-      req.user?.userId ||
-      req.user?.id;
+    const userId = req.user?._id || req.user?.userId || req.user?.id;
 
     if (!userId) {
       return res.status(401).json({
@@ -61,11 +56,10 @@ const generateVideo = async (req, res) => {
     // CHECK EXISTING VIDEO
     // ======================================
 
-    const existingVideo =
-      await TeachingVideo.findOne({
-        lessonId: lesson._id,
-        userId,
-      });
+    const existingVideo = await TeachingVideo.findOne({
+      lessonId: lesson._id,
+      userId,
+    });
 
     if (
       existingVideo &&
@@ -83,12 +77,9 @@ const generateVideo = async (req, res) => {
     // GEMINI - GENERATE TEACHING SCENES
     // ======================================
 
-    console.log(
-      "Generating teaching scenes with Gemini..."
-    );
+    console.log("Generating teaching scenes with Gemini...");
 
-    const scenePlan =
-      await generateTeachingScenes(lesson);
+    const scenePlan = await generateTeachingScenes(lesson);
 
     // ======================================
     // VALIDATE GEMINI RESULT
@@ -101,8 +92,7 @@ const generateVideo = async (req, res) => {
     ) {
       return res.status(500).json({
         success: false,
-        message:
-          "Gemini did not generate valid teaching scenes",
+        message: "Gemini did not generate valid teaching scenes",
       });
     }
 
@@ -110,20 +100,15 @@ const generateVideo = async (req, res) => {
     // COMBINE SCENE SCRIPTS
     // ======================================
 
-    const script =
-      scenePlan.scenes
-        .map(
-          (scene) =>
-            scene.script || ""
-        )
-        .filter(Boolean)
-        .join("\n\n");
+    const script = scenePlan.scenes
+      .map((scene) => scene.script || "")
+      .filter(Boolean)
+      .join("\n\n");
 
     if (!script.trim()) {
       return res.status(500).json({
         success: false,
-        message:
-          "Generated teaching scenes contain no script",
+        message: "Generated teaching scenes contain no script",
       });
     }
 
@@ -131,43 +116,33 @@ const generateVideo = async (req, res) => {
     // CREATE / UPDATE DATABASE RECORD
     // ======================================
 
-    let teachingVideo =
-      existingVideo;
+    let teachingVideo = existingVideo;
 
     if (!teachingVideo) {
-      teachingVideo =
-        await TeachingVideo.create({
-          userId,
+      teachingVideo = await TeachingVideo.create({
+        userId,
 
-          lessonId: lesson._id,
+        lessonId: lesson._id,
 
-          title:
-            scenePlan.title ||
-            lesson.topic ||
-            "AI Teaching Video",
+        title: scenePlan.title || lesson.topic || "AI Teaching Video",
 
-          status: "processing",
+        status: "processing",
 
-          scenes:
-            scenePlan.scenes,
+        scenes: scenePlan.scenes,
 
-          provider: "",
+        provider: "",
 
-          providerVideoId: "",
+        providerVideoId: "",
 
-          videoUrl: "",
-        });
+        videoUrl: "",
+      });
     } else {
       teachingVideo.title =
-        scenePlan.title ||
-        lesson.topic ||
-        "AI Teaching Video";
+        scenePlan.title || lesson.topic || "AI Teaching Video";
 
-      teachingVideo.scenes =
-        scenePlan.scenes;
+      teachingVideo.scenes = scenePlan.scenes;
 
-      teachingVideo.status =
-        "processing";
+      teachingVideo.status = "processing";
     }
 
     await teachingVideo.save();
@@ -176,34 +151,25 @@ const generateVideo = async (req, res) => {
     // AVATAR VIDEO GENERATION
     // ======================================
 
-    console.log(
-      "Sending teaching script to avatar provider..."
-    );
+    console.log("Sending teaching script to avatar provider...");
 
-    const avatarResult =
-  await generateAvatarVideo({
-    script,
+    const avatarResult = await generateAvatarVideo({
+      script,
 
-    title:
-      lesson.topic,
-  });
+      title: lesson.topic,
+    });
 
     // ======================================
     // SAVE AVATAR RESULT
     // ======================================
 
-    teachingVideo.provider =
-      avatarResult?.provider || "";
+    teachingVideo.provider = avatarResult?.provider || "";
 
-    teachingVideo.providerVideoId =
-      avatarResult?.providerVideoId || "";
+    teachingVideo.providerVideoId = avatarResult?.providerVideoId || "";
 
-    teachingVideo.status =
-      avatarResult?.status ||
-      "processing";
+    teachingVideo.status = avatarResult?.status || "processing";
 
-    teachingVideo.videoUrl =
-      avatarResult?.videoUrl || "";
+    teachingVideo.videoUrl = avatarResult?.videoUrl || "";
 
     await teachingVideo.save();
 
@@ -211,20 +177,21 @@ const generateVideo = async (req, res) => {
     // SUCCESS
     // ======================================
 
+    const videoPlan = {
+      title: teachingVideo.title || lesson.topic || "AI Teaching Video",
+      scenes: teachingVideo.scenes || [],
+    };
+
     return res.status(200).json({
       success: true,
 
-      message:
-        "Teaching video generation started",
+      message: "Teaching video generation started",
 
       video: teachingVideo,
+      videoPlan,
     });
-
   } catch (error) {
-    console.error(
-      "Generate video error:",
-      error
-    );
+    console.error("Generate video error:", error);
 
     // ======================================
     // GEMINI ERROR
@@ -233,16 +200,14 @@ const generateVideo = async (req, res) => {
     if (error?.status === 429) {
       return res.status(429).json({
         success: false,
-        message:
-          "Gemini API quota exceeded. Please try again later.",
+        message: "Gemini API quota exceeded. Please try again later.",
       });
     }
 
     if (error?.status === 503) {
       return res.status(503).json({
         success: false,
-        message:
-          "Gemini is temporarily unavailable. Please try again.",
+        message: "Gemini is temporarily unavailable. Please try again.",
       });
     }
 
@@ -252,14 +217,9 @@ const generateVideo = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message:
-        "Failed to generate teaching video",
+      message: "Failed to generate teaching video",
 
-      error:
-        process.env.NODE_ENV ===
-        "development"
-          ? error.message
-          : undefined,
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
@@ -268,16 +228,12 @@ const generateVideo = async (req, res) => {
 // CHECK VIDEO STATUS
 // ======================================
 
-const getVideoStatus = async (
-  req,
-  res
-) => {
+const getVideoStatus = async (req, res) => {
   try {
-    const video =
-      await TeachingVideo.findOne({
-        _id: req.params.id,
-        userId: req.user._id,
-      });
+    const video = await TeachingVideo.findOne({
+      _id: req.params.id,
+      userId: req.user._id,
+    });
 
     if (!video) {
       return res.status(404).json({
@@ -290,24 +246,17 @@ const getVideoStatus = async (
     // CHECK AVATAR STATUS
     // ======================================
 
-    if (
-      video.status === "processing" &&
-      video.providerVideoId
-    ) {
-      const result =
-        await getAvatarVideoStatus({
-          providerVideoId:
-            video.providerVideoId,
-        });
+    if (video.status === "processing" && video.providerVideoId) {
+      const result = await getAvatarVideoStatus({
+        providerVideoId: video.providerVideoId,
+      });
 
       if (result?.status) {
-        video.status =
-          result.status;
+        video.status = result.status;
       }
 
       if (result?.videoUrl) {
-        video.videoUrl =
-          result.videoUrl;
+        video.videoUrl = result.videoUrl;
       }
 
       await video.save();
@@ -317,17 +266,12 @@ const getVideoStatus = async (
       success: true,
       video,
     });
-
   } catch (error) {
-    console.error(
-      "Video status error:",
-      error
-    );
+    console.error("Video status error:", error);
 
     return res.status(500).json({
       success: false,
-      message:
-        "Failed to check video status",
+      message: "Failed to check video status",
     });
   }
 };
@@ -336,25 +280,18 @@ const getVideoStatus = async (
 // GET VIDEO FOR LESSON
 // ======================================
 
-const getLessonVideo = async (
-  req,
-  res
-) => {
+const getLessonVideo = async (req, res) => {
   try {
-    const video =
-      await TeachingVideo.findOne({
-        lessonId:
-          req.params.lessonId,
+    const video = await TeachingVideo.findOne({
+      lessonId: req.params.lessonId,
 
-        userId:
-          req.user._id,
-      });
+      userId: req.user._id,
+    });
 
     if (!video) {
       return res.status(404).json({
         success: false,
-        message:
-          "Teaching video not found",
+        message: "Teaching video not found",
       });
     }
 
@@ -362,17 +299,12 @@ const getLessonVideo = async (
       success: true,
       video,
     });
-
   } catch (error) {
-    console.error(
-      "Get lesson video error:",
-      error
-    );
+    console.error("Get lesson video error:", error);
 
     return res.status(500).json({
       success: false,
-      message:
-        "Failed to get teaching video",
+      message: "Failed to get teaching video",
     });
   }
 };

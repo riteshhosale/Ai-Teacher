@@ -29,8 +29,7 @@ function Learn() {
       const token = localStorage.getItem("token");
 
       const API_URL =
-        import.meta.env.VITE_API_URL ||
-        "https://ai-teacher-qrj7.onrender.com/api";
+        import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
       const response = await fetch(`${API_URL}/documents`, {
         headers: {
@@ -73,8 +72,7 @@ function Learn() {
       console.log("Starting lesson generation...");
 
       const API_URL =
-        import.meta.env.VITE_API_URL ||
-        "https://ai-teacher-qrj7.onrender.com/api";
+        import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
       const response = await fetch(`${API_URL}/lesson/generate`, {
         method: "POST",

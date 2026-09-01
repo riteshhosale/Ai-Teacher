@@ -4,33 +4,18 @@ const {
   generateVideo,
   getVideoStatus,
   getLessonVideo,
-} = require(
-  "../controllers/videoController"
-);
+} = require("../controllers/videoController");
 
-const { protect } = require(
-  "../middleware/authMiddleware"
-);
+const { protect } = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
-router.post(
-  "/generate",
-  protect,
-  generateVideo
-);
+router.post("/generate", protect, generateVideo);
 
-router.get(
-  "/status/:id",
-  protect,
-  getVideoStatus
-);
+router.post("/generate-scenes", protect, generateVideo);
 
-router.get(
-  "/lesson/:lessonId",
-  protect,
-  getLessonVideo
-);
+router.get("/status/:id", protect, getVideoStatus);
 
+router.get("/lesson/:lessonId", protect, getLessonVideo);
 
 module.exports = router;

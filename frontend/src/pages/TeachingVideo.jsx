@@ -7,8 +7,7 @@ import TeachingScene from "../components/TeachingScene";
 // API URL
 // =====================================================
 
-const API_URL =
-  import.meta.env.VITE_API_URL || "https://ai-teacher-qrj7.onrender.com/api";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
 // =====================================================
 // TEACHING VIDEO
@@ -61,7 +60,7 @@ function TeachingVideo() {
         throw new Error("Please login first.");
       }
 
-      const response = await fetch(`${API_URL}/video/generate-scenes`, {
+      const response = await fetch(`${API_URL}/video/generate`, {
         method: "POST",
 
         headers: {

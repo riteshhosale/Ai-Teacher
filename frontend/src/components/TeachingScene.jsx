@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import TeachingScene from "../components/TeachingScene";
 
-const API_URL =
-  import.meta.env.VITE_API_URL || "https://ai-teacher-qrj7.onrender.com/api";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
 function TeachingVideo() {
   const { id } = useParams();
@@ -36,7 +35,7 @@ function TeachingVideo() {
         throw new Error("Please login first.");
       }
 
-      const response = await fetch(`${API_URL}/video/generate-scenes`, {
+      const response = await fetch(`${API_URL}/video/generate`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
