@@ -2,6 +2,17 @@ const jwt = require("jsonwebtoken");
 
 const protect = (req, res, next) => {
     try {
+        const jwtSecret =
+            process.env.JWT_SECRET ||
+            process.env.jwt_secret;
+
+        if (!jwtSecret) {
+            return res.status(500).json({
+                success: false,
+                message: "JWT_SECRET is not configured",
+            });
+        }
+
         const authHeader = req.headers.authorization;
 
         if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -15,10 +26,13 @@ const protect = (req, res, next) => {
 
         const decoded = jwt.verify(
             token,
-            process.env.JWT_SECRET
+            jwtSecret
         );
 
-        req.user = decoded;
+        req.user = {
+            ...decoded,
+            _id: decoded.userId || decoded._id || decoded.id,
+        };
 
         next();
     } catch (error) {

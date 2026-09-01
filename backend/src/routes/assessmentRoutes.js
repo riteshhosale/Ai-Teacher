@@ -1,8 +1,8 @@
 const express = require("express");
 
 const {
-  generateLesson,
-} = require("../controllers/ragController");
+  generateAssessmentReport,
+} = require("../controllers/assessmentController");
 
 const { protect } = require(
   "../middleware/authMiddleware"
@@ -11,9 +11,9 @@ const { protect } = require(
 const router = express.Router();
 
 router.post(
-  "/ask",
+  "/report",
   protect,
-  generateLesson
+  generateAssessmentReport
 );
 
 module.exports = router;

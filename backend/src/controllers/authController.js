@@ -7,7 +7,11 @@ const User = require("../models/User");
 // =====================================================
 
 const generateToken = (userId) => {
-  if (!process.env.JWT_SECRET) {
+  const jwtSecret =
+    process.env.JWT_SECRET ||
+    process.env.jwt_secret;
+
+  if (!jwtSecret) {
     throw new Error(
       "JWT_SECRET is not configured"
     );
@@ -17,7 +21,7 @@ const generateToken = (userId) => {
     {
       userId: userId.toString(),
     },
-    process.env.JWT_SECRET,
+    jwtSecret,
     {
       expiresIn:
         process.env.JWT_EXPIRES_IN || "7d",

@@ -9,6 +9,7 @@ import Lesson from "./pages/Lesson";
 import UploadMaterial from "./pages/UploadMaterial";
 import Progress from "./pages/Progress";
 import LearningPath from "./pages/LearningPath";
+import TeachingVideo from "./pages/TeachingVideo";
 
 function App() {
   return (
@@ -25,6 +26,11 @@ function App() {
         <Route path="/learn" element={<Learn />} />
 
         <Route path="/upload" element={<UploadMaterial />} />
+
+        <Route
+  path="/teaching-video/:id"
+  element={<TeachingVideo />}
+/>
 
         <Route
   path="/learning-path"

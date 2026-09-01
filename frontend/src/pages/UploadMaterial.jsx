@@ -1,6 +1,9 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
+const API_URL =
+  import.meta.env.VITE_API_URL || "https://ai-teacher-qrj7.onrender.com/api";
+
 function UploadMaterial() {
   const navigate = useNavigate();
 
@@ -87,48 +90,35 @@ function UploadMaterial() {
       // Therefore frontend must also use "file".
       formData.append("file", file);
 
-      const response = await fetch(
-        "http://localhost:5000/api/material/upload",
-        "https://ai-teacher-qrj7.onrender.com/api/material/upload",
-        {
-          method: "POST",
+      const response = await fetch(`${API_URL}/material/upload`, {
+        method: "POST",
 
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
 
-          // Do NOT manually set Content-Type.
-          // Browser automatically creates multipart/form-data.
-          body: formData,
-        }
-      );
+        // Do NOT manually set Content-Type.
+        // Browser automatically creates multipart/form-data.
+        body: formData,
+      });
 
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          data.message || "Upload failed"
-        );
+        throw new Error(data.message || "Upload failed");
       }
 
       console.log("Upload successful:", data);
 
       // Save processed material
-      localStorage.setItem(
-        "uploadedMaterial",
-        JSON.stringify(data.material)
-      );
+      localStorage.setItem("uploadedMaterial", JSON.stringify(data.material));
 
       // Go to learning page
       navigate("/learn");
-
     } catch (error) {
       console.error("Upload error:", error);
 
-      setError(
-        error.message ||
-          "Unable to upload the material."
-      );
+      setError(error.message || "Unable to upload the material.");
     } finally {
       setLoading(false);
     }
@@ -138,37 +128,25 @@ function UploadMaterial() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
-
       {/* ================= NAVBAR ================= */}
 
       <nav className="border-b border-slate-200 bg-white">
-
         <div
           className="mx-auto flex h-16 max-w-7xl
           items-center justify-between px-5"
         >
-
-          <Link
-            to="/dashboard"
-            className="flex items-center gap-2"
-          >
-
+          <Link to="/dashboard" className="flex items-center gap-2">
             <div
               className="flex h-9 w-9 items-center
               justify-center rounded-lg bg-indigo-600"
             >
-              <span className="text-xs font-bold text-white">
-                AI
-              </span>
+              <span className="text-xs font-bold text-white">AI</span>
             </div>
 
             <span className="font-bold">
               AI
-              <span className="text-indigo-600">
-                Teacher
-              </span>
+              <span className="text-indigo-600">Teacher</span>
             </span>
-
           </Link>
 
           <Link
@@ -179,19 +157,15 @@ function UploadMaterial() {
           >
             ← Dashboard
           </Link>
-
         </div>
-
       </nav>
 
       {/* ================= MAIN ================= */}
 
       <main className="mx-auto max-w-3xl px-5 py-12">
-
         {/* Header */}
 
         <div className="text-center">
-
           <span
             className="rounded-full bg-indigo-50
             px-4 py-2 text-sm font-semibold
@@ -205,10 +179,8 @@ function UploadMaterial() {
           </h1>
 
           <p className="mt-3 text-slate-500">
-            Upload a PDF and let your AI Teacher
-            learn from your study material.
+            Upload a PDF and let your AI Teacher learn from your study material.
           </p>
-
         </div>
 
         {/* ================= UPLOAD BOX ================= */}
@@ -217,19 +189,15 @@ function UploadMaterial() {
           className="mt-10 rounded-2xl border
           border-slate-200 bg-white p-6 shadow-sm sm:p-8"
         >
-
           <div
             onDragOver={(e) => {
               e.preventDefault();
               setDragging(true);
             }}
-
             onDragLeave={() => {
               setDragging(false);
             }}
-
             onDrop={handleDrop}
-
             className={`rounded-2xl border-2
             border-dashed p-10 text-center
             transition ${
@@ -238,7 +206,6 @@ function UploadMaterial() {
                 : "border-slate-300 bg-slate-50"
             }`}
           >
-
             <div
               className="mx-auto flex h-16 w-16
               items-center justify-center
@@ -248,9 +215,7 @@ function UploadMaterial() {
             </div>
 
             <h2 className="mt-5 text-lg font-bold">
-              {file
-                ? file.name
-                : "Drop your PDF here"}
+              {file ? file.name : "Drop your PDF here"}
             </h2>
 
             <p className="mt-2 text-sm text-slate-500">
@@ -265,20 +230,17 @@ function UploadMaterial() {
               transition hover:bg-indigo-700"
             >
               Choose PDF
-
               <input
                 type="file"
                 accept=".pdf,application/pdf"
                 onChange={handleFileChange}
                 className="hidden"
               />
-
             </label>
 
             <p className="mt-4 text-xs text-slate-400">
               PDF only · Maximum 10 MB
             </p>
-
           </div>
 
           {/* ================= SELECTED FILE ================= */}
@@ -289,9 +251,7 @@ function UploadMaterial() {
               justify-between rounded-xl border
               border-slate-200 bg-slate-50 p-4"
             >
-
               <div className="flex items-center gap-3">
-
                 <div
                   className="flex h-10 w-10
                   items-center justify-center
@@ -301,7 +261,6 @@ function UploadMaterial() {
                 </div>
 
                 <div>
-
                   <p
                     className="max-w-56 truncate
                     text-sm font-semibold sm:max-w-md"
@@ -312,9 +271,7 @@ function UploadMaterial() {
                   <p className="text-xs text-slate-500">
                     {(file.size / 1024 / 1024).toFixed(2)} MB
                   </p>
-
                 </div>
-
               </div>
 
               <button
@@ -328,7 +285,6 @@ function UploadMaterial() {
               >
                 Remove
               </button>
-
             </div>
           )}
 
@@ -357,22 +313,14 @@ function UploadMaterial() {
             disabled:cursor-not-allowed
             disabled:opacity-40"
           >
-            {loading
-              ? "Processing PDF..."
-              : "Upload & Start Learning →"}
+            {loading ? "Processing PDF..." : "Upload & Start Learning →"}
           </button>
-
         </div>
 
         {/* ================= WHAT HAPPENS ================= */}
 
         <div className="mt-8 grid gap-4 sm:grid-cols-3">
-
-          <Info
-            icon="📄"
-            title="Upload"
-            text="Upload your study material."
-          />
+          <Info icon="📄" title="Upload" text="Upload your study material." />
 
           <Info
             icon="🧠"
@@ -385,11 +333,8 @@ function UploadMaterial() {
             title="Learn"
             text="Your AI Teacher teaches from it."
           />
-
         </div>
-
       </main>
-
     </div>
   );
 }
@@ -402,14 +347,9 @@ function Info({ icon, title, text }) {
       className="rounded-xl border
       border-slate-200 bg-white p-5 text-center"
     >
+      <div className="text-2xl">{icon}</div>
 
-      <div className="text-2xl">
-        {icon}
-      </div>
-
-      <h3 className="mt-3 font-bold">
-        {title}
-      </h3>
+      <h3 className="mt-3 font-bold">{title}</h3>
 
       <p
         className="mt-1 text-xs
@@ -417,7 +357,6 @@ function Info({ icon, title, text }) {
       >
         {text}
       </p>
-
     </div>
   );
 }

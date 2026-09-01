@@ -7,7 +7,8 @@ const PORT = process.env.PORT || 5000;
 
 console.log(
   "JWT_SECRET:",
-  process.env.JWT_SECRET
+  process.env.JWT_SECRET ||
+  process.env.jwt_secret
     ? "Loaded"
     : "Missing"
 );

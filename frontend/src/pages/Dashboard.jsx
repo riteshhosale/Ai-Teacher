@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 const API_URL =
-  import.meta.env.VITE_API_URL ||
-  "http://localhost:5000/api";
+  import.meta.env.VITE_API_URL || "https://ai-teacher-qrj7.onrender.com/api";
 
 function Dashboard() {
   const navigate = useNavigate();
@@ -23,8 +22,7 @@ function Dashboard() {
 
   const loadDashboard = async () => {
     try {
-      const token =
-        localStorage.getItem("token");
+      const token = localStorage.getItem("token");
 
       // =================================================
       // CHECK LOGIN
@@ -44,35 +42,23 @@ function Dashboard() {
       // LOAD ALL DATA
       // =================================================
 
-      const [
-        summaryResponse,
-        lessonsResponse,
-        documentsResponse,
-      ] = await Promise.all([
-        fetch(
-          `${API_URL}/progress/summary`,
-          {
+      const [summaryResponse, lessonsResponse, documentsResponse] =
+        await Promise.all([
+          fetch(`${API_URL}/progress/summary`, {
             method: "GET",
             headers,
-          }
-        ),
+          }),
 
-        fetch(
-          `${API_URL}/lessons`,
-          {
+          fetch(`${API_URL}/lessons`, {
             method: "GET",
             headers,
-          }
-        ),
+          }),
 
-        fetch(
-          `${API_URL}/documents`,
-          {
+          fetch(`${API_URL}/documents`, {
             method: "GET",
             headers,
-          }
-        ),
-      ]);
+          }),
+        ]);
 
       // =================================================
       // HANDLE AUTH ERROR
@@ -92,23 +78,18 @@ function Dashboard() {
       // READ RESPONSES
       // =================================================
 
-      const summaryData =
-        await summaryResponse.json();
+      const summaryData = await summaryResponse.json();
 
-      const lessonsData =
-        await lessonsResponse.json();
+      const lessonsData = await lessonsResponse.json();
 
-      const documentsData =
-        await documentsResponse.json();
+      const documentsData = await documentsResponse.json();
 
       // =================================================
       // SUMMARY
       // =================================================
 
       if (summaryData.success) {
-        setSummary(
-          summaryData.summary || {}
-        );
+        setSummary(summaryData.summary || {});
       }
 
       // =================================================
@@ -117,11 +98,7 @@ function Dashboard() {
 
       if (lessonsData.success) {
         setLessons(
-          Array.isArray(
-            lessonsData.lessons
-          )
-            ? lessonsData.lessons
-            : []
+          Array.isArray(lessonsData.lessons) ? lessonsData.lessons : [],
         );
       }
 
@@ -131,19 +108,11 @@ function Dashboard() {
 
       if (documentsData.success) {
         setDocuments(
-          Array.isArray(
-            documentsData.documents
-          )
-            ? documentsData.documents
-            : []
+          Array.isArray(documentsData.documents) ? documentsData.documents : [],
         );
       }
-
     } catch (error) {
-      console.error(
-        "Dashboard error:",
-        error
-      );
+      console.error("Dashboard error:", error);
     } finally {
       setLoading(false);
     }
@@ -171,7 +140,6 @@ function Dashboard() {
         bg-slate-50"
       >
         <div className="text-center">
-
           <div
             className="mx-auto h-10 w-10
             animate-spin rounded-full
@@ -185,7 +153,6 @@ function Dashboard() {
           >
             Loading your dashboard...
           </p>
-
         </div>
       </div>
     );
@@ -197,7 +164,6 @@ function Dashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-
       {/* =================================================
           NAVBAR
       ================================================= */}
@@ -211,13 +177,9 @@ function Dashboard() {
           max-w-7xl items-center
           justify-between px-5"
         >
-
           {/* LOGO */}
 
-          <Link
-            to="/dashboard"
-            className="flex items-center gap-2"
-          >
+          <Link to="/dashboard" className="flex items-center gap-2">
             <div
               className="flex h-9 w-9
               items-center justify-center
@@ -233,17 +195,13 @@ function Dashboard() {
 
             <span className="font-bold">
               AI
-              <span className="text-indigo-600">
-                Teacher
-              </span>
+              <span className="text-indigo-600">Teacher</span>
             </span>
           </Link>
 
           {/* NAVIGATION */}
 
-          <div
-            className="flex items-center gap-2"
-          >
+          <div className="flex items-center gap-2">
             <Link
               to="/progress"
               className="hidden rounded-lg
@@ -286,7 +244,6 @@ function Dashboard() {
         className="mx-auto max-w-7xl
         px-5 py-10"
       >
-
         {/* =================================================
             WELCOME
         ================================================= */}
@@ -306,11 +263,8 @@ function Dashboard() {
             Welcome back
           </h1>
 
-          <p
-            className="mt-2 text-slate-500"
-          >
-            Continue learning with your
-            personalized AI Teacher.
+          <p className="mt-2 text-slate-500">
+            Continue learning with your personalized AI Teacher.
           </p>
         </section>
 
@@ -322,7 +276,6 @@ function Dashboard() {
           className="mt-8 grid gap-5
           md:grid-cols-3"
         >
-
           {/* START LEARNING */}
 
           <Link
@@ -336,7 +289,6 @@ function Dashboard() {
               justify-between"
             >
               <div>
-
                 <div
                   className="flex h-11 w-11
                   items-center justify-center
@@ -358,11 +310,9 @@ function Dashboard() {
                   text-sm leading-6
                   text-indigo-100"
                 >
-                  Choose a topic and let your
-                  AI Teacher create a
-                  personalized lesson.
+                  Choose a topic and let your AI Teacher create a personalized
+                  lesson.
                 </p>
-
               </div>
 
               <span
@@ -390,7 +340,6 @@ function Dashboard() {
               justify-between"
             >
               <div>
-
                 <div
                   className="flex h-11 w-11
                   items-center justify-center
@@ -412,11 +361,9 @@ function Dashboard() {
                   text-sm leading-6
                   text-slate-500"
                 >
-                  Upload your notes or textbook
-                  and learn directly from your
-                  own study material.
+                  Upload your notes or textbook and learn directly from your own
+                  study material.
                 </p>
-
               </div>
 
               <span
@@ -444,7 +391,6 @@ function Dashboard() {
               justify-between"
             >
               <div>
-
                 <div
                   className="flex h-11 w-11
                   items-center justify-center
@@ -466,10 +412,8 @@ function Dashboard() {
                   text-sm leading-6
                   text-slate-500"
                 >
-                  See your personalized journey
-                  and what you should learn next.
+                  See your personalized journey and what you should learn next.
                 </p>
-
               </div>
 
               <span
@@ -481,7 +425,6 @@ function Dashboard() {
               </span>
             </div>
           </Link>
-
         </section>
 
         {/* =================================================
@@ -492,28 +435,21 @@ function Dashboard() {
           className="mt-8 grid gap-5
           sm:grid-cols-2 lg:grid-cols-4"
         >
-
           <StatCard
             title="Lessons"
-            value={
-              summary?.completedLessons || 0
-            }
+            value={summary?.completedLessons || 0}
             icon="📚"
           />
 
           <StatCard
             title="Questions"
-            value={
-              summary?.totalQuestions || 0
-            }
+            value={summary?.totalQuestions || 0}
             icon="❓"
           />
 
           <StatCard
             title="Average Score"
-            value={
-              `${summary?.averageScore || 0}%`
-            }
+            value={`${summary?.averageScore || 0}%`}
             icon="📊"
           />
 
@@ -522,7 +458,6 @@ function Dashboard() {
             value={documents.length}
             icon="📄"
           />
-
         </section>
 
         {/* =================================================
@@ -533,7 +468,6 @@ function Dashboard() {
           className="mt-8 grid gap-6
           lg:grid-cols-3"
         >
-
           {/* =================================================
               RECENT LESSONS
           ================================================= */}
@@ -543,17 +477,13 @@ function Dashboard() {
             border border-slate-200
             bg-white lg:col-span-2"
           >
-
             <div
               className="flex items-center
               justify-between border-b
               border-slate-100 p-6"
             >
-
               <div>
-                <h2 className="font-bold">
-                  Recent Lessons
-                </h2>
+                <h2 className="font-bold">Recent Lessons</h2>
 
                 <p
                   className="mt-1 text-xs
@@ -570,17 +500,11 @@ function Dashboard() {
               >
                 View all
               </Link>
-
             </div>
 
             {lessons.length === 0 ? (
-
-              <div
-                className="p-8 text-center"
-              >
-                <div className="text-3xl">
-                  📚
-                </div>
+              <div className="p-8 text-center">
+                <div className="text-3xl">📚</div>
 
                 <p
                   className="mt-3
@@ -607,103 +531,73 @@ function Dashboard() {
                   Start Learning
                 </Link>
               </div>
-
             ) : (
-
               <div
                 className="divide-y
                 divide-slate-100"
               >
+                {lessons.slice(0, 5).map((lesson) => {
+                  const totalQuestions = lesson.questions?.length || 0;
 
-                {lessons
-                  .slice(0, 5)
-                  .map((lesson) => {
+                  const score = Number(lesson.score) || 0;
 
-                    const totalQuestions =
-                      lesson.questions?.length || 0;
+                  const percentage =
+                    totalQuestions > 0
+                      ? Math.round((score / totalQuestions) * 100)
+                      : 0;
 
-                    const score =
-                      Number(
-                        lesson.score
-                      ) || 0;
-
-                    const percentage =
-                      totalQuestions > 0
-                        ? Math.round(
-                            (score /
-                              totalQuestions) *
-                              100
-                          )
-                        : 0;
-
-                    return (
-                      <Link
-                        key={lesson._id}
-                        to={`/lesson/${lesson._id}`}
-                        className="flex
+                  return (
+                    <Link
+                      key={lesson._id}
+                      to={`/lesson/${lesson._id}`}
+                      className="flex
                         items-center
                         justify-between p-5
                         transition
                         hover:bg-slate-50"
-                      >
-
-                        <div
-                          className="min-w-0"
-                        >
-                          <h3
-                            className="truncate
+                    >
+                      <div className="min-w-0">
+                        <h3
+                          className="truncate
                             font-semibold"
-                          >
-                            {lesson.topic}
-                          </h3>
+                        >
+                          {lesson.topic}
+                        </h3>
 
-                          <p
-                            className="mt-1
+                        <p
+                          className="mt-1
                             text-xs
                             text-slate-500"
+                        >
+                          {lesson.level}
+                          {" · "}
+                          {lesson.language}
+                        </p>
+                      </div>
+
+                      <div
+                        className="ml-4
+                          flex items-center
+                          gap-4"
+                      >
+                        <div className="text-right">
+                          <p className="font-bold">{percentage}%</p>
+
+                          <p
+                            className="text-xs
+                              text-slate-400"
                           >
-                            {lesson.level}
-                            {" · "}
-                            {lesson.language}
+                            Score
                           </p>
                         </div>
 
-                        <div
-                          className="ml-4
-                          flex items-center
-                          gap-4"
-                        >
-                          <div
-                            className="text-right"
-                          >
-                            <p
-                              className="font-bold"
-                            >
-                              {percentage}%
-                            </p>
-
-                            <p
-                              className="text-xs
-                              text-slate-400"
-                            >
-                              Score
-                            </p>
-                          </div>
-
-                          <span
-                            className="text-slate-400"
-                          >
-                            →
-                          </span>
-                        </div>
-
-                      </Link>
-                    );
-                  })}
-
+                        <span className="text-slate-400">→</span>
+                      </div>
+                    </Link>
+                  );
+                })}
               </div>
             )}
-
           </div>
 
           {/* =================================================
@@ -715,7 +609,6 @@ function Dashboard() {
             border border-slate-200
             bg-white p-6"
           >
-
             <div
               className="flex h-10 w-10
               items-center justify-center
@@ -747,11 +640,8 @@ function Dashboard() {
                 : "Complete a lesson to receive a personalized recommendation."}
             </p>
 
-            {summary?.weakTopics?.length >
-              0 && (
-
+            {summary?.weakTopics?.length > 0 && (
               <div className="mt-5">
-
                 <p
                   className="text-xs
                   font-semibold
@@ -764,23 +654,18 @@ function Dashboard() {
                   className="mt-3 flex
                   flex-wrap gap-2"
                 >
-                  {summary.weakTopics
-                    .slice(0, 3)
-                    .map((topic) => (
-
-                      <span
-                        key={topic}
-                        className="rounded-full
+                  {summary.weakTopics.slice(0, 3).map((topic) => (
+                    <span
+                      key={topic}
+                      className="rounded-full
                         bg-orange-50 px-3 py-1
                         text-xs font-medium
                         text-orange-600"
-                      >
-                        {topic}
-                      </span>
-
-                    ))}
+                    >
+                      {topic}
+                    </span>
+                  ))}
                 </div>
-
               </div>
             )}
 
@@ -794,9 +679,7 @@ function Dashboard() {
             >
               Continue Learning →
             </Link>
-
           </div>
-
         </section>
 
         {/* =================================================
@@ -808,24 +691,19 @@ function Dashboard() {
           border border-slate-200
           bg-white"
         >
-
           <div
             className="flex items-center
             justify-between border-b
             border-slate-100 p-6"
           >
-
             <div>
-              <h2 className="font-bold">
-                Your Study Materials
-              </h2>
+              <h2 className="font-bold">Your Study Materials</h2>
 
               <p
                 className="mt-1 text-xs
                 text-slate-500"
               >
-                Documents available to your
-                AI Teacher
+                Documents available to your AI Teacher
               </p>
             </div>
 
@@ -838,14 +716,10 @@ function Dashboard() {
             >
               + Upload
             </Link>
-
           </div>
 
           {documents.length === 0 ? (
-
-            <div
-              className="p-8 text-center"
-            >
+            <div className="p-8 text-center">
               <p
                 className="text-sm
                 text-slate-500"
@@ -863,76 +737,57 @@ function Dashboard() {
                 Upload your first PDF →
               </Link>
             </div>
-
           ) : (
-
             <div
               className="grid gap-4 p-5
               sm:grid-cols-2 lg:grid-cols-3"
             >
-
-              {documents
-                .slice(0, 6)
-                .map((document) => (
-
-                  <div
-                    key={document._id}
-                    className="rounded-xl
+              {documents.slice(0, 6).map((document) => (
+                <div
+                  key={document._id}
+                  className="rounded-xl
                     border border-slate-200
                     p-4"
-                  >
-
-                    <div
-                      className="flex
+                >
+                  <div
+                    className="flex
                       items-start gap-3"
-                    >
-
-                      <div
-                        className="flex h-10
+                  >
+                    <div
+                      className="flex h-10
                         w-10 shrink-0
                         items-center
                         justify-center
                         rounded-lg
                         bg-red-50"
-                      >
-                        📄
-                      </div>
-
-                      <div
-                        className="min-w-0"
-                      >
-
-                        <p
-                          className="truncate
-                          text-sm font-semibold"
-                        >
-                          {document.originalName}
-                        </p>
-
-                        <p
-                          className="mt-1 text-xs
-                          text-slate-500"
-                        >
-                          {document.pages || 0}
-                          {" pages · "}
-                          {document.totalChunks || 0}
-                          {" chunks"}
-                        </p>
-
-                      </div>
-
+                    >
+                      📄
                     </div>
 
+                    <div className="min-w-0">
+                      <p
+                        className="truncate
+                          text-sm font-semibold"
+                      >
+                        {document.originalName}
+                      </p>
+
+                      <p
+                        className="mt-1 text-xs
+                          text-slate-500"
+                      >
+                        {document.pages || 0}
+                        {" pages · "}
+                        {document.totalChunks || 0}
+                        {" chunks"}
+                      </p>
+                    </div>
                   </div>
-
-                ))}
-
+                </div>
+              ))}
             </div>
-
           )}
-
         </section>
-
       </main>
     </div>
   );
@@ -942,18 +797,13 @@ function Dashboard() {
 // STAT CARD
 // =====================================================
 
-function StatCard({
-  title,
-  value,
-  icon,
-}) {
+function StatCard({ title, value, icon }) {
   return (
     <div
       className="rounded-2xl
       border border-slate-200
       bg-white p-6"
     >
-
       <div
         className="flex items-center
         justify-between"
@@ -965,9 +815,7 @@ function StatCard({
           {title}
         </p>
 
-        <span className="text-xl">
-          {icon}
-        </span>
+        <span className="text-xl">{icon}</span>
       </div>
 
       <p
@@ -976,7 +824,6 @@ function StatCard({
       >
         {value}
       </p>
-
     </div>
   );
 }
