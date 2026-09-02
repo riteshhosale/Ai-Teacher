@@ -1,451 +1,274 @@
 const { GoogleGenAI } = require("@google/genai");
 
-const { createEmbedding } = require("../utils/embeddings");
-const searchKnowledge = require("../utils/searchKnowledge");
-
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
 
-// =====================================================
-// EVALUATE ANSWER
-// =====================================================
-
 const evaluateAnswer = async (req, res) => {
-  const startTime = Date.now();
-
   try {
     const {
-      topic,
+      lessonId,
       question,
-      selectedAnswer,
-      correctAnswer,
-      level,
-      language,
+      studentAnswer,
+      expectedAnswer,
+      context = "",
     } = req.body;
 
-    // =================================================
+    // -----------------------------
     // VALIDATION
-    // =================================================
+    // -----------------------------
 
     if (
-      !topic ||
-      !question ||
-      !selectedAnswer ||
-      !correctAnswer
+      !question?.trim() ||
+      !studentAnswer?.trim() ||
+      !expectedAnswer?.trim()
     ) {
       return res.status(400).json({
         success: false,
-        message: "Required fields are missing",
-      });
-    }
-
-    // =================================================
-    // CHECK ANSWER LOCALLY
-    // =================================================
-
-    const isCorrect =
-      selectedAnswer
-        .trim()
-        .toLowerCase() ===
-      correctAnswer
-        .trim()
-        .toLowerCase();
-
-    console.log("");
-    console.log("================================");
-    console.log("ADAPTIVE ANSWER EVALUATION");
-    console.log("================================");
-
-    console.log(
-      "Answer:",
-      isCorrect ? "CORRECT" : "INCORRECT"
-    );
-
-    // =================================================
-    // USER ID
-    // =================================================
-
-    const userId =
-      req.user?._id ||
-      req.user?.id ||
-      req.user?.userId;
-
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
         message:
-          "User ID not found in authentication token",
+          "question, studentAnswer and expectedAnswer are required",
       });
     }
 
-    // =================================================
-    // CREATE QUESTION EMBEDDING
-    // =================================================
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({
+        success: false,
+        message: "GEMINI_API_KEY is not configured",
+      });
+    }
 
-    console.log(
-      "Creating question embedding..."
-    );
-
-    const queryEmbedding =
-      await createEmbedding(question);
-
-    console.log(
-      "Question embedding created"
-    );
-
-    // =================================================
-    // SEARCH KNOWLEDGE
-    // =================================================
-
-    console.log(
-      "Searching uploaded material..."
-    );
-
-    const knowledge =
-      await searchKnowledge(
-        queryEmbedding,
-        userId,
-        2
-      );
-
-    console.log(
-      `Found ${knowledge.length} relevant chunks`
-    );
-
-    // =================================================
-    // BUILD CONTEXT
-    // =================================================
-
-    const context =
-      knowledge
-        .map(
-          (item, index) =>
-            `SOURCE ${index + 1}:
-${item.text}`
-        )
-        .join("\n\n");
-
-    // =================================================
+    // -----------------------------
     // PROMPT
-    // =================================================
+    // -----------------------------
 
     const prompt = `
 You are an adaptive AI teacher.
 
-Student level:
-${level}
+Evaluate the student's answer based on the question and expected answer.
 
-Language:
-${language}
+LESSON ID:
+${lessonId || "Not provided"}
 
-Topic:
-${topic}
-
-Question:
+QUESTION:
 ${question}
 
-Student answer:
-${selectedAnswer}
+EXPECTED ANSWER:
+${expectedAnswer}
 
-Correct answer:
-${correctAnswer}
+STUDENT ANSWER:
+${studentAnswer}
 
-Answer status:
-${isCorrect ? "CORRECT" : "INCORRECT"}
+ADDITIONAL CONTEXT:
+${context || "No additional context"}
 
-Study material:
-${context || "No relevant study material found."}
+Determine:
 
-${
-  isCorrect
-    ? `
-The student answered correctly.
-
-Give:
-1. Short positive feedback.
-2. A concise explanation.
-3. One slightly harder follow-up question.
-`
-    : `
-The student answered incorrectly.
-
-Give:
-1. The likely misconception.
-2. A simple explanation.
-3. One easy practical example.
-4. One easier follow-up question.
-`
-}
+1. Whether the student's answer is correct.
+2. How well the student understands the concept.
+3. Any misconception.
+4. A simple explanation.
+5. An alternative explanation if the student is incorrect.
+6. A simple analogy.
+7. A follow-up question.
 
 Return ONLY valid JSON.
 
 Use exactly this structure:
 
 {
-  "correct": ${isCorrect},
-  "feedback": "",
-  "misconception": "",
-  "explanation": "",
-  "example": "",
-  "nextQuestion": {
-    "question": "",
-    "options": [
-      "",
-      "",
-      "",
-      ""
-    ],
-    "correctAnswer": ""
-  },
-  "difficulty": "easy"
+  "correct": true,
+  "score": 85,
+  "understood": "Short description",
+  "misconception": null,
+  "explanation": "Simple explanation",
+  "reExplanation": "Alternative explanation",
+  "analogy": "Simple analogy",
+  "nextQuestion": "Follow-up question"
 }
 
 Rules:
 
-- correct must be boolean.
-- Keep feedback concise.
-- Keep explanation concise.
-- Keep example concise.
-- nextQuestion must contain exactly 4 options.
-- difficulty must be easy, medium, or hard.
-- Do not use markdown.
+- score must be an integer from 0 to 100.
+- correct must be true or false.
+- misconception must be null when there is no misconception.
+- Keep explanations simple and educational.
+- If partially correct, explain what is missing.
+- If incorrect, clearly explain the misconception.
+- Do not use Markdown.
 - Do not use code fences.
 - Return JSON only.
 `;
 
-    // =================================================
+    // -----------------------------
     // GEMINI MODELS
-    // =================================================
+    // -----------------------------
 
     const models = [
-      "gemini-3.7-flash",
-      "gemini-3.6-flash",
+      process.env.GEMINI_MODEL || "gemini-2.5-flash",
+      "gemini-2.0-flash",
     ];
 
     let response = null;
-    let usedModel = null;
-
-    // =================================================
-    // TRY MODELS
-    // =================================================
+    let lastError = null;
 
     for (const model of models) {
       try {
-        console.log(
-          `Trying Gemini model: ${model}`
-        );
+        console.log(`Trying Gemini model: ${model}`);
 
-        response =
-          await ai.models.generateContent({
-            model,
+        response = await ai.models.generateContent({
+          model,
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            temperature: 0.2,
+            maxOutputTokens: 1200,
+          },
+        });
 
-            contents: prompt,
-
-            config: {
-              responseMimeType:
-                "application/json",
-            },
-          });
-
-        usedModel = model;
-
-        console.log(
-          `AI response received from ${model}`
-        );
-
-        break;
-
+        if (response) {
+          console.log(`Gemini model succeeded: ${model}`);
+          break;
+        }
       } catch (error) {
+        lastError = error;
+
         console.error(
-          `${model} failed:`,
+          `Gemini model ${model} failed:`,
           error.message
         );
-
-        // =============================================
-        // QUOTA
-        // =============================================
-
-        if (error?.status === 429) {
-          return res.status(429).json({
-            success: false,
-            message:
-              "Gemini API quota exceeded. Please try again later.",
-          });
-        }
-
-        // =============================================
-        // TEMPORARY UNAVAILABLE
-        // =============================================
-
-        if (error?.status === 503) {
-          console.log(
-            `${model} is temporarily unavailable.`
-          );
-
-          continue;
-        }
-
-        // =============================================
-        // OTHER ERROR
-        // =============================================
-
-        throw error;
       }
     }
 
-    // =================================================
-    // NO MODEL AVAILABLE
-    // =================================================
-
     if (!response) {
-      return res.status(503).json({
-        success: false,
-        message:
-          "Gemini AI is temporarily unavailable. Please try again.",
-      });
+      throw lastError || new Error("Gemini evaluation failed");
     }
 
-    // =================================================
-    // GET OUTPUT
-    // =================================================
+    // -----------------------------
+    // GET GEMINI RESPONSE
+    // -----------------------------
 
-    const output =
-      response?.text?.trim();
+    let text = response.text;
 
-    if (!output) {
-      throw new Error(
-        "Gemini returned an empty response"
-      );
+    if (typeof text === "function") {
+      text = text();
     }
 
-    console.log(
-      `Gemini output received using ${usedModel}`
-    );
+    if (!text || !text.trim()) {
+      throw new Error("Gemini returned an empty response");
+    }
 
-    // =================================================
+    text = text.trim();
+
+    // Remove accidental Markdown fences
+    text = text
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim();
+
+    // -----------------------------
     // PARSE JSON
-    // =================================================
+    // -----------------------------
 
     let result;
 
     try {
-      const cleanedOutput =
-        output
-          .replace(
-            /^```json\s*/i,
-            ""
-          )
-          .replace(
-            /^```\s*/i,
-            ""
-          )
-          .replace(
-            /\s*```$/i,
-            ""
-          )
-          .trim();
-
-      result =
-        JSON.parse(cleanedOutput);
-
+      result = JSON.parse(text);
     } catch (error) {
-      console.error(
-        "Invalid Gemini JSON:"
+      console.error("Invalid Gemini JSON:");
+      console.error(text);
+
+      throw new Error(
+        "AI returned an invalid evaluation response"
       );
-
-      console.error(output);
-
-      return res.status(500).json({
-        success: false,
-        message:
-          "Gemini returned invalid evaluation data",
-      });
     }
 
-    // =================================================
-    // ALWAYS TRUST BACKEND FOR CORRECTNESS
-    // =================================================
+    // -----------------------------
+    // VALIDATE RESULT
+    // -----------------------------
 
-    result.correct =
-      isCorrect;
+    result.correct = Boolean(result.correct);
 
-    // =================================================
+    const numericScore = Number(result.score);
+
+    result.score = Number.isFinite(numericScore)
+      ? Math.max(0, Math.min(100, Math.round(numericScore)))
+      : 0;
+
+    result.understood =
+      typeof result.understood === "string"
+        ? result.understood
+        : "";
+
+    result.misconception =
+      result.misconception === null ||
+      typeof result.misconception === "string"
+        ? result.misconception
+        : null;
+
+    result.explanation =
+      typeof result.explanation === "string"
+        ? result.explanation
+        : "";
+
+    result.reExplanation =
+      typeof result.reExplanation === "string"
+        ? result.reExplanation
+        : "";
+
+    result.analogy =
+      typeof result.analogy === "string"
+        ? result.analogy
+        : "";
+
+    result.nextQuestion =
+      typeof result.nextQuestion === "string"
+        ? result.nextQuestion
+        : "";
+
+    // -----------------------------
     // RESPONSE
-    // =================================================
-
-    console.log(
-      `Evaluation completed in ${
-        Date.now() - startTime
-      }ms`
-    );
+    // -----------------------------
 
     return res.status(200).json({
       success: true,
-
-      message:
-        "Answer evaluated successfully",
-
-      result,
-
-      model:
-        usedModel,
-
-      sources:
-        knowledge.map(
-          (item) => ({
-            fileName:
-              item.fileName,
-
-            chunkIndex:
-              item.chunkIndex,
-
-            score:
-              item.score,
-          })
-        ),
+      lessonId: lessonId || null,
+      evaluation: result,
     });
-
   } catch (error) {
-    console.error(
-      "Adaptive learning error:",
-      error
-    );
+    console.error("Adaptive evaluation error:", error);
 
-    // =================================================
-    // GEMINI 429
-    // =================================================
-
-    if (error?.status === 429) {
+    // Gemini rate limit
+    if (
+      error.status === 429 ||
+      error.message?.includes("429")
+    ) {
       return res.status(429).json({
         success: false,
         message:
-          "Gemini API quota exceeded. Please try again later.",
+          "Gemini API rate limit reached. Please try again shortly.",
       });
     }
 
-    // =================================================
-    // GEMINI 503
-    // =================================================
-
-    if (error?.status === 503) {
+    // Gemini unavailable
+    if (
+      error.status === 503 ||
+      error.message?.includes("503")
+    ) {
       return res.status(503).json({
         success: false,
         message:
-          "Gemini AI is temporarily unavailable. Please try again.",
+          "Gemini is temporarily unavailable. Please try again.",
       });
     }
 
-    // =================================================
-    // GENERAL ERROR
-    // =================================================
-
     return res.status(500).json({
       success: false,
-      message:
-        "Failed to evaluate answer",
+      message: "Failed to evaluate student answer",
       error:
-        error.message,
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : undefined,
     });
   }
 };

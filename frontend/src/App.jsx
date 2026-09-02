@@ -10,6 +10,7 @@ import UploadMaterial from "./pages/UploadMaterial";
 import Progress from "./pages/Progress";
 import LearningPath from "./pages/LearningPath";
 import TeachingVideo from "./pages/TeachingVideo";
+import Profile from "./pages/Profile";
 
 function App() {
   return (
@@ -26,6 +27,8 @@ function App() {
         <Route path="/learn" element={<Learn />} />
 
         <Route path="/upload" element={<UploadMaterial />} />
+
+        <Route path="/profile" element={<Profile />} />
 
         <Route
   path="/teaching-video/:id"

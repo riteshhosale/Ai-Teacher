@@ -6,7 +6,13 @@ const {
 
 const searchKnowledge =
   require("../utils/searchKnowledge");
+
 const Lesson = require("../models/Lesson");
+
+const {
+  buildPersonalizationContext,
+} = require("../services/personalizationService");
+
 
 // =====================================================
 // GEMINI CLIENT
@@ -15,6 +21,7 @@ const Lesson = require("../models/Lesson");
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
 });
+
 
 // =====================================================
 // GENERATE LESSON
@@ -30,6 +37,7 @@ const generateLesson = async (req, res) => {
       language,
       time,
     } = req.body;
+
 
     // =================================================
     // VALIDATION
@@ -48,6 +56,7 @@ const generateLesson = async (req, res) => {
       });
     }
 
+
     // =================================================
     // USER ID
     // =================================================
@@ -65,6 +74,7 @@ const generateLesson = async (req, res) => {
       });
     }
 
+
     // =================================================
     // 1. CREATE TOPIC EMBEDDING
     // =================================================
@@ -80,6 +90,7 @@ const generateLesson = async (req, res) => {
     console.log(
       "Topic embedding created"
     );
+
 
     // =================================================
     // 2. SEARCH UPLOADED MATERIAL
@@ -99,6 +110,7 @@ const generateLesson = async (req, res) => {
     console.log(
       `Found ${knowledge.length} relevant chunks`
     );
+
 
     // =================================================
     // 3. BUILD RAG CONTEXT
@@ -121,24 +133,72 @@ ${item.text}`
         )
         .join("\n\n");
 
+
     // =================================================
-    // 4. PROMPT
+    // 4. BUILD PERSONALIZATION CONTEXT
+    // =================================================
+
+    const personalizationContext =
+      buildPersonalizationContext({
+        level,
+
+        existingKnowledge:
+          req.user?.existingKnowledge || "",
+
+        goal:
+          req.user?.learningGoal ||
+          "Understand the topic",
+
+        teachingStyle:
+          req.user?.teachingStyle ||
+          "Simple and example-based",
+
+        language,
+
+        availableTime:
+          time,
+
+        weakConcepts:
+          req.user?.weakConcepts || [],
+
+        strongConcepts:
+          req.user?.strongConcepts || [],
+
+        previousScore:
+          req.user?.previousScore ?? null,
+      });
+
+
+    // =================================================
+    // 5. PROMPT
     // =================================================
 
     const prompt = `
-You are an expert AI teacher.
+You are an expert adaptive AI teacher.
 
-Create a SHORT personalized lesson.
-
-STUDENT:
-
-Topic: ${topic}
-Level: ${level}
-Language: ${language}
-Available time: ${time}
+${personalizationContext}
 
 
-STUDY MATERIAL:
+=================================================
+STUDENT REQUEST
+=================================================
+
+Topic:
+${topic}
+
+Level:
+${level}
+
+Language:
+${language}
+
+Available learning time:
+${time}
+
+
+=================================================
+STUDY MATERIAL
+=================================================
 
 Use the uploaded study material as the
 PRIMARY source when relevant.
@@ -146,22 +206,131 @@ PRIMARY source when relevant.
 ${context || "No relevant study material found."}
 
 
-TEACHING REQUIREMENTS:
+=================================================
+TEACHING REQUIREMENTS
+=================================================
 
 1. Give a simple introduction.
+
 2. Explain the topic according to the student's level.
+
 3. Use the uploaded material when relevant.
+
 4. Give exactly 2 practical examples.
+
 5. Give exactly 1 short demonstration.
+
 6. Create exactly 2 multiple-choice questions.
+
 7. Each question must have exactly 4 options.
+
 8. Give the correct answer.
+
 9. Explain why the answer is correct.
+
 10. Give a short summary.
+
 11. Suggest the next topic.
 
 
-LENGTH LIMITS:
+=================================================
+TIME-BASED PERSONALIZATION
+=================================================
+
+The student's available learning time is:
+
+${time}
+
+Adapt the lesson to this time.
+
+If the available time is short:
+
+- Focus on the most important concepts.
+- Keep explanations concise.
+- Use fewer examples when necessary.
+- Ask only essential questions.
+- Avoid unnecessary background information.
+
+If the available time is moderate:
+
+- Cover the important concepts.
+- Provide useful examples.
+- Include knowledge-check questions.
+- Use moderate explanation depth.
+
+If the available time is long:
+
+- Explain concepts more deeply.
+- Provide additional examples.
+- Include demonstrations.
+- Include additional practice where appropriate.
+
+Do not unnecessarily exceed the student's available time.
+
+
+=================================================
+PERSONALIZATION RULES
+=================================================
+
+- Match the student's knowledge level.
+- Focus more on weak concepts.
+- Avoid unnecessary repetition of strong concepts.
+- Follow the preferred teaching style.
+- Use the requested language.
+- Adapt difficulty according to previous performance.
+- Use examples appropriate for the student.
+- Keep the lesson grounded in the uploaded material.
+- Do not invent information that contradicts the study material.
+- Ask questions that verify understanding.
+
+
+// =================================================
+// LANGUAGE RULE
+// =================================================
+
+LANGUAGE REQUIREMENT:
+
+The student's selected language is:
+
+${language}
+
+Generate the ENTIRE lesson in this language.
+
+Translate and generate all educational content
+naturally in the selected language.
+
+This includes:
+
+- Introduction
+- Explanation
+- Examples
+- Demonstration
+- Questions
+- Options
+- Correct answers
+- Question explanations
+- Summary
+- Next topic
+
+IMPORTANT:
+
+Do not mix English with the selected language
+unless a technical term normally remains in English.
+
+Preserve:
+- Mathematical formulas
+- Programming syntax
+- Scientific symbols
+- Technical names
+- Code
+
+The teaching explanation itself must use the
+selected language.
+
+
+=================================================
+LENGTH LIMITS
+=================================================
 
 - Introduction: maximum 60 words.
 - Explanation: maximum 120 words.
@@ -172,7 +341,10 @@ LENGTH LIMITS:
 - Summary: maximum 40 words.
 - nextTopic: maximum 10 words.
 
-IMPORTANT:
+
+=================================================
+IMPORTANT
+=================================================
 
 Keep the complete response SHORT.
 
@@ -182,7 +354,10 @@ ALWAYS finish the JSON.
 
 RETURN ONLY VALID JSON.
 
-Use exactly this structure:
+
+=================================================
+EXACT JSON STRUCTURE
+=================================================
 
 {
   "topic": "",
@@ -224,7 +399,10 @@ Use exactly this structure:
   "nextTopic": ""
 }
 
-Rules:
+
+=================================================
+FINAL RULES
+=================================================
 
 - Exactly 2 questions.
 - Exactly 4 options per question.
@@ -233,8 +411,9 @@ Rules:
 - Return JSON only.
 `;
 
+
     // =================================================
-    // 5. GEMINI MODEL FALLBACK
+    // 6. GEMINI MODEL FALLBACK
     // =================================================
 
     const models = [
@@ -245,12 +424,15 @@ Rules:
     let response = null;
     let usedModel = null;
 
+
     for (const model of models) {
       try {
+
         console.log("");
         console.log(
           `Trying Gemini model: ${model}`
         );
+
 
         response =
           await ai.models.generateContent({
@@ -264,11 +446,10 @@ Rules:
 
               temperature: 0.2,
 
-              // Increased enough to avoid
-              // truncated JSON.
               maxOutputTokens: 3000,
             },
           });
+
 
         usedModel = model;
 
@@ -285,6 +466,7 @@ Rules:
           error.message
         );
 
+
         // =============================================
         // QUOTA
         // =============================================
@@ -298,6 +480,7 @@ Rules:
               "Gemini API quota exceeded. Please try again later.",
           });
         }
+
 
         // =============================================
         // MODEL TEMPORARILY BUSY
@@ -313,9 +496,11 @@ Rules:
           continue;
         }
 
+
         throw error;
       }
     }
+
 
     // =================================================
     // NO GEMINI MODEL AVAILABLE
@@ -329,8 +514,9 @@ Rules:
       });
     }
 
+
     // =================================================
-    // 6. GET GEMINI TEXT
+    // 7. GET GEMINI TEXT
     // =================================================
 
     const output =
@@ -338,18 +524,21 @@ Rules:
         ? response.text.trim()
         : "";
 
+
     if (!output) {
       throw new Error(
         "Gemini returned an empty response"
       );
     }
 
+
     console.log(
       `Gemini output received using ${usedModel}`
     );
 
+
     // =================================================
-    // 7. CLEAN JSON
+    // 8. CLEAN JSON
     // =================================================
 
     let cleanedOutput =
@@ -368,8 +557,9 @@ Rules:
         )
         .trim();
 
+
     // =================================================
-    // 8. PARSE JSON
+    // 9. PARSE JSON
     // =================================================
 
     let lesson;
@@ -410,8 +600,9 @@ Rules:
       });
     }
 
+
     // =================================================
-    // 9. VALIDATE LESSON
+    // 10. VALIDATE LESSON
     // =================================================
 
     if (
@@ -434,16 +625,18 @@ Rules:
       });
     }
 
+
     // =================================================
-    // 10. ENSURE EXACTLY 2 QUESTIONS
+    // 11. ENSURE EXACTLY 2 QUESTIONS
     // =================================================
 
     lesson.questions =
       lesson.questions
         .slice(0, 2);
 
+
     // =================================================
-    // 11. VALIDATE QUESTIONS
+    // 12. VALIDATE QUESTIONS
     // =================================================
 
     for (
@@ -467,7 +660,9 @@ Rules:
         });
       }
 
+
       // Keep exactly 4 options
+
       question.options =
         question.options.slice(
           0,
@@ -475,14 +670,17 @@ Rules:
         );
     }
 
+
     // =================================================
-    // 12. SUCCESS
+    // 13. SUCCESS
     // =================================================
 
     const generationTime =
       Date.now() - startTime;
 
+
     console.log("");
+
     console.log(
       "================================"
     );
@@ -510,8 +708,9 @@ Rules:
       "================================"
     );
 
+
     // =================================================
-    // 13. RESPONSE
+    // 14. RESPONSE
     // =================================================
 
     return res.status(200).json({
@@ -545,10 +744,12 @@ Rules:
   } catch (error) {
 
     console.error("");
+
     console.error(
       "RAG lesson generation error:",
       error
     );
+
 
     // =================================================
     // QUOTA
@@ -564,6 +765,7 @@ Rules:
       });
     }
 
+
     // =================================================
     // TEMPORARY UNAVAILABLE
     // =================================================
@@ -577,6 +779,7 @@ Rules:
           "Gemini AI is temporarily unavailable. Please try again in a moment.",
       });
     }
+
 
     // =================================================
     // GENERAL ERROR
@@ -593,6 +796,7 @@ Rules:
     });
   }
 };
+
 
 // =====================================================
 // EXPORT

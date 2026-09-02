@@ -1,131 +1,219 @@
 const axios = require("axios");
 
-const BASE_URL =
-  "https://api.synthesia.io/v2";
+const DID_API_URL = "https://api.d-id.com";
 
-const headers = {
-  Authorization:
-    process.env.SYNTHESIA_API_KEY,
+const getHeaders = () => {
+  if (!process.env.DID_API_KEY) {
+    throw new Error(
+      "DID_API_KEY is missing from backend/.env"
+    );
+  }
 
-  "Content-Type":
-    "application/json",
+  return {
+    Authorization: `Basic ${process.env.DID_API_KEY}`,
+    "Content-Type": "application/json",
+  };
 };
 
+const getVoiceId = (language) => {
+  const normalizedLanguage = String(
+    language || "English"
+  ).toLowerCase();
 
-// ======================================
-// CREATE AVATAR VIDEO
-// ======================================
+  if (normalizedLanguage.includes("marathi")) {
+    return (
+      process.env.DID_MARATHI_VOICE_ID ||
+      process.env.DID_VOICE_ID ||
+      "en-US-JennyNeural"
+    );
+  }
 
+  if (normalizedLanguage.includes("hindi")) {
+    return (
+      process.env.DID_HINDI_VOICE_ID ||
+      process.env.DID_VOICE_ID ||
+      "en-US-JennyNeural"
+    );
+  }
+
+  return (
+    process.env.DID_ENGLISH_VOICE_ID ||
+    process.env.DID_VOICE_ID ||
+    "en-US-JennyNeural"
+  );
+};
+
+/**
+ * Generate AI Teacher video using D-ID Talks API.
+ *
+ * @param {Object} params
+ * @param {String} params.title
+ * @param {Array} params.scenes
+ * @param {String} params.language
+ */
 const generateAvatarVideo = async ({
-  script,
   title,
+  scenes,
+  language = "English",
 }) => {
-  try {
-    const response = await axios.post(
-      `${BASE_URL}/videos`,
-      {
-        test: true,
+  if (!process.env.DID_SOURCE_URL) {
+    throw new Error(
+      "DID_SOURCE_URL is missing from backend/.env"
+    );
+  }
 
-        title:
-          title ||
-          "AI Teacher Lesson",
+  if (!Array.isArray(scenes) || scenes.length === 0) {
+    throw new Error(
+      "At least one teaching scene is required"
+    );
+  }
 
-        visibility: "private",
+  const validScenes = scenes.filter(
+    (scene) =>
+      scene &&
+      typeof scene.script === "string" &&
+      scene.script.trim()
+  );
 
-        input: [
-          {
-            scriptText: script,
+  if (validScenes.length === 0) {
+    throw new Error(
+      "No valid scene scripts were found"
+    );
+  }
 
-            avatar:
-              process.env.SYNTHESIA_AVATAR_ID,
+  /*
+   * D-ID Talks creates one video from one script.
+   *
+   * Therefore, combine the lesson scenes into one
+   * continuous AI Teacher script.
+   */
+  const combinedScript = validScenes
+    .map((scene) => scene.script.trim())
+    .join("\n\n");
 
-            background:
-              "#F8FAFC",
-          },
-        ],
+  const voiceId = getVoiceId(language);
+
+  const payload = {
+    source_url: process.env.DID_SOURCE_URL,
+
+    script: {
+      type: "text",
+      input: combinedScript,
+
+      provider: {
+        type: "microsoft",
+        voice_id: voiceId,
       },
+    },
+
+    name: title || "AI Teacher Lesson",
+  };
+
+  try {
+    console.log("Creating D-ID AI Teacher video...");
+
+    const response = await axios.post(
+      `${DID_API_URL}/talks`,
+      payload,
       {
-        headers,
+        headers: getHeaders(),
       }
     );
 
+    console.log(
+      "D-ID video created:",
+      response.data.id
+    );
+
     return {
-      provider: "synthesia",
-
-      providerVideoId:
-        response.data.id,
-
+      provider: "d-id",
+      providerVideoId: response.data.id,
       status: "processing",
-
-      videoUrl: "",
     };
-
   } catch (error) {
     console.error(
-      "Synthesia create video error:",
-      error.response?.data ||
-        error.message
+      "D-ID video generation error:",
+      error.response?.data || error.message
     );
 
     throw new Error(
-      "Failed to create avatar video"
+      error.response?.data?.message ||
+        error.response?.data?.description ||
+        "Failed to generate D-ID video"
     );
   }
 };
 
-
-// ======================================
-// CHECK VIDEO STATUS
-// ======================================
-
+/**
+ * Get D-ID video generation status.
+ */
 const getAvatarVideoStatus = async ({
   providerVideoId,
 }) => {
+  if (!providerVideoId) {
+    throw new Error(
+      "providerVideoId is required"
+    );
+  }
+
   try {
-    const response =
-      await axios.get(
-        `${BASE_URL}/videos/${providerVideoId}`,
-        {
-          headers,
-        }
-      );
+    const response = await axios.get(
+      `${DID_API_URL}/talks/${providerVideoId}`,
+      {
+        headers: getHeaders(),
+      }
+    );
 
     const data = response.data;
 
-    let status = "processing";
+    console.log(
+      "D-ID video status:",
+      data.status
+    );
 
-    if (
-      data.status === "complete"
-    ) {
-      status = "completed";
+    if (data.status === "done") {
+      return {
+        status: "completed",
+        videoUrl: data.result_url || null,
+        duration: data.duration || null,
+        error: null,
+      };
     }
 
     if (
-      data.status === "failed"
+      data.status === "error" ||
+      data.status === "rejected"
     ) {
-      status = "failed";
+      return {
+        status: "failed",
+        videoUrl: null,
+        duration: null,
+        error:
+          data.error ||
+          data.message ||
+          "D-ID video generation failed",
+      };
     }
 
     return {
-      status,
-
-      videoUrl:
-        data.download || "",
+      status: "processing",
+      videoUrl: null,
+      duration: null,
+      error: null,
     };
-
   } catch (error) {
     console.error(
-      "Synthesia status error:",
-      error.response?.data ||
-        error.message
+      "D-ID status error:",
+      error.response?.data || error.message
     );
 
     throw new Error(
-      "Failed to check avatar video"
+      error.response?.data?.message ||
+        error.response?.data?.description ||
+        "Failed to retrieve D-ID video status"
     );
   }
 };
-
 
 module.exports = {
   generateAvatarVideo,

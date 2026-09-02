@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import TeachingScene from "../components/TeachingScene";
@@ -22,14 +22,84 @@ function TeachingVideo() {
   // ===================================================
 
   const [plan, setPlan] = useState(null);
-
   const [currentScene, setCurrentScene] = useState(0);
 
   const [loading, setLoading] = useState(true);
-
   const [generating, setGenerating] = useState(false);
 
   const [error, setError] = useState("");
+
+  // ===================================================
+  // AVATAR VIDEO STATE
+  // ===================================================
+
+  const [avatarVideo, setAvatarVideo] = useState(null);
+  const [avatarError, setAvatarError] = useState("");
+
+  const pollingRef = useRef(null);
+
+  // ===================================================
+  // POLL AVATAR VIDEO STATUS
+  // ===================================================
+
+  const pollVideoStatus = useCallback(async (videoId) => {
+    try {
+      const token = localStorage.getItem("token");
+
+      if (!token) {
+        throw new Error("Please login first.");
+      }
+
+      const response = await fetch(`${API_URL}/video/status/${videoId}`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to check video status.");
+      }
+
+      if (!data.video) {
+        throw new Error("Video status not found.");
+      }
+
+      setAvatarVideo(data.video);
+
+      // ===============================================
+      // COMPLETED
+      // ===============================================
+
+      if (data.video.status === "completed") {
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+
+        setAvatarError("");
+      }
+
+      // ===============================================
+      // FAILED
+      // ===============================================
+
+      if (data.video.status === "failed") {
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+
+        setAvatarError(data.video.error || "Avatar video generation failed.");
+      }
+    } catch (err) {
+      console.error("Video polling error:", err);
+
+      setAvatarError(err.message || "Unable to check avatar video status.");
+    }
+  }, []);
 
   // ===================================================
   // GENERATE TEACHING SCENES
@@ -40,6 +110,7 @@ function TeachingVideo() {
       setGenerating(true);
       setLoading(true);
       setError("");
+      setAvatarError("");
 
       const token = localStorage.getItem("token");
 
@@ -47,12 +118,15 @@ function TeachingVideo() {
         throw new Error("Please login first.");
       }
 
+      if (!id) {
+        throw new Error("Lesson ID is missing.");
+      }
+
       const response = await fetch(`${API_URL}/video/generate`, {
         method: "POST",
 
         headers: {
           "Content-Type": "application/json",
-
           Authorization: `Bearer ${token}`,
         },
 
@@ -64,8 +138,12 @@ function TeachingVideo() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.message || "Failed to generate video");
+        throw new Error(data.message || "Failed to generate teaching video.");
       }
+
+      // =================================================
+      // VALIDATE VIDEO PLAN
+      // =================================================
 
       if (
         !data.videoPlan ||
@@ -75,32 +153,73 @@ function TeachingVideo() {
         throw new Error("No teaching scenes were generated.");
       }
 
+      // =================================================
+      // SAVE TEACHING PLAN
+      // =================================================
+
       setPlan(data.videoPlan);
-
       setCurrentScene(0);
-    } catch (error) {
-      console.error("Teaching video error:", error);
 
-      setError(error.message || "Unable to generate teaching video.");
+      // =================================================
+      // AVATAR VIDEO
+      // =================================================
+
+      if (data.video) {
+        setAvatarVideo(data.video);
+
+        // Clear previous polling
+        if (pollingRef.current) {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+        }
+
+        // Start polling
+        if (data.video.status === "processing" && data.video._id) {
+          pollingRef.current = setInterval(() => {
+            pollVideoStatus(data.video._id);
+          }, 5000);
+        }
+      }
+    } catch (err) {
+      console.error("Teaching video error:", err);
+
+      setError(err.message || "Unable to generate teaching video.");
 
       setPlan(null);
     } finally {
       setLoading(false);
       setGenerating(false);
     }
-  }, [id]);
+  }, [id, pollVideoStatus]);
+
+  // ===================================================
+  // LOAD VIDEO
+  // ===================================================
 
   useEffect(() => {
     if (!id) {
+      setLoading(false);
       return;
     }
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void generateScenes();
+    generateScenes();
   }, [id, generateScenes]);
 
   // ===================================================
-  // LOADING
+  // CLEANUP POLLING
+  // ===================================================
+
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, []);
+
+  // ===================================================
+  // NO LESSON ID
   // ===================================================
 
   if (!id) {
@@ -117,7 +236,7 @@ function TeachingVideo() {
 
           <Link
             to="/dashboard"
-            className="mt-6 inline-block rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700"
+            className="mt-6 inline-block rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
             Back to Dashboard
           </Link>
@@ -126,16 +245,15 @@ function TeachingVideo() {
     );
   }
 
+  // ===================================================
+  // LOADING
+  // ===================================================
+
   if (loading || generating) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-5">
         <div className="text-center">
-          <div
-            className="mx-auto h-10 w-10
-            animate-spin rounded-full
-            border-4 border-slate-200
-            border-t-indigo-600"
-          />
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-600" />
 
           <p className="mt-4 font-semibold text-slate-900">
             Creating your AI teaching video...
@@ -172,14 +290,14 @@ function TeachingVideo() {
               type="button"
               onClick={generateScenes}
               disabled={generating}
-              className="rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-50"
+              className="rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {generating ? "Trying..." : "Try Again"}
             </button>
 
             <Link
               to={`/lesson/${id}`}
-              className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700"
+              className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
             >
               Back
             </Link>
@@ -204,7 +322,7 @@ function TeachingVideo() {
           <button
             type="button"
             onClick={generateScenes}
-            className="mt-4 rounded-xl bg-indigo-600 px-5 py-3 font-semibold text-white"
+            className="mt-4 rounded-xl bg-indigo-600 px-5 py-3 font-semibold text-white transition hover:bg-indigo-700"
           >
             Generate Again
           </button>
@@ -217,21 +335,22 @@ function TeachingVideo() {
   // CURRENT SCENE
   // ===================================================
 
-  const scene = scenes[Math.min(currentScene, scenes.length - 1)];
+  const safeSceneIndex = Math.min(currentScene, scenes.length - 1);
+
+  const scene = scenes[safeSceneIndex];
 
   // ===================================================
   // TEACHING PROGRESS
   // ===================================================
 
-  const progress =
-    scenes.length > 0 ? ((currentScene + 1) / scenes.length) * 100 : 0;
+  const progress = ((safeSceneIndex + 1) / scenes.length) * 100;
 
   // ===================================================
   // NEXT SCENE
   // ===================================================
 
   const handleNext = () => {
-    if (currentScene < scenes.length - 1) {
+    if (safeSceneIndex < scenes.length - 1) {
       setCurrentScene((value) => value + 1);
     }
   };
@@ -241,7 +360,7 @@ function TeachingVideo() {
   // ===================================================
 
   const handlePrevious = () => {
-    if (currentScene > 0) {
+    if (safeSceneIndex > 0) {
       setCurrentScene((value) => value - 1);
     }
   };
@@ -297,6 +416,80 @@ function TeachingVideo() {
         </div>
 
         {/* =================================================
+            AVATAR VIDEO GENERATING
+        ================================================= */}
+
+        {avatarVideo?.status === "processing" && (
+          <div className="mb-8 rounded-2xl border border-blue-200 bg-blue-50 p-6">
+            <div className="flex items-center gap-4">
+              <div className="h-10 w-10 shrink-0 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600" />
+
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">
+                  AI Teacher video is generating
+                </h2>
+
+                <p className="mt-1 text-sm text-slate-600">
+                  Your human-like teacher is preparing the lesson. This usually
+                  takes a few minutes.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* =================================================
+            AVATAR VIDEO COMPLETED
+        ================================================= */}
+
+        {avatarVideo?.status === "completed" && avatarVideo?.videoUrl && (
+          <div className="mb-8 overflow-hidden rounded-2xl border border-green-200 bg-white shadow-sm">
+            <div className="border-b border-green-100 bg-green-50 px-6 py-4">
+              <h2 className="font-semibold text-green-800">
+                AI Teacher Video Ready
+              </h2>
+
+              <p className="mt-1 text-sm text-green-700">
+                Your human-like AI teacher has finished the lesson.
+              </p>
+            </div>
+
+            <div className="p-4">
+              <video
+                controls
+                className="w-full rounded-xl"
+                src={avatarVideo.videoUrl}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* =================================================
+    AVATAR VIDEO COMPLETED
+================================================= */}
+
+        {avatarVideo?.status === "completed" && avatarVideo?.videoUrl && (
+          <div className="mb-8 overflow-hidden rounded-2xl border border-slate-200 bg-black shadow-lg">
+            <video
+              className="aspect-video w-full"
+              src={avatarVideo.videoUrl}
+              controls
+              playsInline
+            >
+              Your browser does not support video playback.
+            </video>
+
+            <div className="bg-white p-4">
+              <h2 className="font-semibold text-slate-900">AI Teacher</h2>
+
+              <p className="mt-1 text-sm text-slate-500">
+                Watch the complete AI-generated lesson above.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* =================================================
             TEACHING PROGRESS
         ================================================= */}
 
@@ -332,7 +525,7 @@ function TeachingVideo() {
 
           <button
             type="button"
-            disabled={currentScene === 0}
+            disabled={safeSceneIndex === 0}
             onClick={handlePrevious}
             className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -342,12 +535,12 @@ function TeachingVideo() {
           {/* SCENE COUNT */}
 
           <span className="text-sm text-slate-500">
-            Scene {currentScene + 1} / {scenes.length}
+            Scene {safeSceneIndex + 1} / {scenes.length}
           </span>
 
           {/* NEXT */}
 
-          {currentScene < scenes.length - 1 ? (
+          {safeSceneIndex < scenes.length - 1 ? (
             <button
               type="button"
               onClick={handleNext}
@@ -377,11 +570,11 @@ function TeachingVideo() {
           <div className="grid gap-3 sm:grid-cols-2">
             {scenes.map((item, index) => (
               <button
-                key={item.sceneNumber || index}
+                key={item.sceneNumber || `scene-${index}`}
                 type="button"
                 onClick={() => setCurrentScene(index)}
                 className={`rounded-xl border p-4 text-left transition ${
-                  index === currentScene
+                  index === safeSceneIndex
                     ? "border-indigo-300 bg-indigo-50"
                     : "border-slate-200 bg-white hover:border-indigo-200"
                 }`}
@@ -389,7 +582,7 @@ function TeachingVideo() {
                 <div className="flex items-center gap-3">
                   <span
                     className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${
-                      index === currentScene
+                      index === safeSceneIndex
                         ? "bg-indigo-600 text-white"
                         : "bg-slate-100 text-slate-600"
                     }`}

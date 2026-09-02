@@ -1,16 +1,18 @@
 const Lesson = require("../models/Lesson");
 const TeachingVideo = require("../models/TeachingVideo");
 
-const { generateTeachingScenes } = require("../services/lessonSceneService");
-
 const {
   generateAvatarVideo,
   getAvatarVideoStatus,
 } = require("../services/avatarService");
 
-// ======================================
-// GENERATE TEACHING VIDEO
-// ======================================
+const {
+  generateLessonScenePlan,
+} = require("../services/lessonSceneService");
+
+// ==========================================
+// GENERATE VIDEO + SCENE PLAN
+// ==========================================
 
 const generateVideo = async (req, res) => {
   try {
@@ -23,11 +25,14 @@ const generateVideo = async (req, res) => {
       });
     }
 
-    // ======================================
-    // USER ID
-    // ======================================
+    // ==========================================
+    // FIND LESSON
+    // ==========================================
 
-    const userId = req.user?._id || req.user?.userId || req.user?.id;
+    const userId =
+      req.user?._id ||
+      req.user?.userId ||
+      req.user?.id;
 
     if (!userId) {
       return res.status(401).json({
@@ -35,10 +40,6 @@ const generateVideo = async (req, res) => {
         message: "User authentication required",
       });
     }
-
-    // ======================================
-    // FIND LESSON
-    // ======================================
 
     const lesson = await Lesson.findOne({
       _id: lessonId,
@@ -52,14 +53,111 @@ const generateVideo = async (req, res) => {
       });
     }
 
-    // ======================================
-    // CHECK EXISTING VIDEO
-    // ======================================
+    // ==========================================
+    // GENERATE EDUCATIONAL SCENE PLAN WITH GEMINI
+    // ==========================================
 
-    const existingVideo = await TeachingVideo.findOne({
-      lessonId: lesson._id,
-      userId,
-    });
+    console.log(
+      "Generating teaching scene plan with Gemini..."
+    );
+
+    const videoPlan =
+      await generateLessonScenePlan({
+        topic:
+          lesson.title ||
+          lesson.topic ||
+          "AI Teacher Lesson",
+
+        level:
+          lesson.level || "beginner",
+
+        language:
+          lesson.language || "English",
+
+        introduction:
+          lesson.introduction || "",
+
+        explanation:
+          lesson.explanation || "",
+
+        examples:
+          lesson.examples || [],
+
+        demonstration:
+          lesson.demonstration || "",
+
+        summary:
+          lesson.summary || "",
+      });
+
+    // ==========================================
+    // VALIDATE SCENE PLAN
+    // ==========================================
+
+    if (
+      !videoPlan ||
+      !Array.isArray(videoPlan.scenes) ||
+      videoPlan.scenes.length === 0
+    ) {
+      return res.status(500).json({
+        success: false,
+        message:
+          "No teaching scenes were generated",
+      });
+    }
+
+    // ==========================================
+    // CHECK EXISTING VIDEO
+    // ==========================================
+
+    let existingVideo =
+      await TeachingVideo.findOne({
+        lessonId: lesson._id,
+        userId,
+      });
+
+    // ==========================================
+    // IF ALREADY PROCESSING
+    // ==========================================
+
+    if (
+      existingVideo &&
+      existingVideo.status === "processing" &&
+      existingVideo.providerVideoId
+    ) {
+      return res.status(200).json({
+        success: true,
+        message:
+          "Teaching video is already being generated",
+
+        videoPlan: {
+          title:
+            existingVideo.title ||
+            videoPlan.title ||
+            lesson.topic ||
+            "AI Teacher Lesson",
+
+          description:
+            videoPlan.description ||
+            "Learn this topic through AI-generated educational scenes.",
+
+          language:
+            videoPlan.language ||
+            lesson.language ||
+            "English",
+
+          scenes:
+            existingVideo.scenes ||
+            videoPlan.scenes,
+        },
+
+        video: existingVideo,
+      });
+    }
+
+    // ==========================================
+    // IF ALREADY COMPLETED
+    // ==========================================
 
     if (
       existingVideo &&
@@ -68,195 +166,324 @@ const generateVideo = async (req, res) => {
     ) {
       return res.status(200).json({
         success: true,
-        message: "Teaching video already exists",
+        message:
+          "Teaching video already exists",
+
+        videoPlan: {
+          title:
+            existingVideo.title ||
+            videoPlan.title ||
+            lesson.topic ||
+            "AI Teacher Lesson",
+
+          description:
+            videoPlan.description ||
+            "Learn this topic through AI-generated educational scenes.",
+
+          language:
+            videoPlan.language ||
+            lesson.language ||
+            "English",
+
+          scenes:
+            existingVideo.scenes ||
+            videoPlan.scenes,
+        },
+
         video: existingVideo,
       });
     }
 
-    // ======================================
-    // GEMINI - GENERATE TEACHING SCENES
-    // ======================================
+    // ==========================================
+    // COMBINE ALL SCENE SCRIPTS
+    // ==========================================
 
-    console.log("Generating teaching scenes with Gemini...");
-
-    const scenePlan = await generateTeachingScenes(lesson);
-
-    // ======================================
-    // VALIDATE GEMINI RESULT
-    // ======================================
-
-    if (
-      !scenePlan ||
-      !Array.isArray(scenePlan.scenes) ||
-      scenePlan.scenes.length === 0
-    ) {
-      return res.status(500).json({
-        success: false,
-        message: "Gemini did not generate valid teaching scenes",
-      });
-    }
-
-    // ======================================
-    // COMBINE SCENE SCRIPTS
-    // ======================================
-
-    const script = scenePlan.scenes
+    const script = videoPlan.scenes
       .map((scene) => scene.script || "")
-      .filter(Boolean)
+      .filter(
+        (sceneScript) =>
+          sceneScript.trim().length > 0
+      )
       .join("\n\n");
 
     if (!script.trim()) {
       return res.status(500).json({
         success: false,
-        message: "Generated teaching scenes contain no script",
+        message:
+          "Generated scenes do not contain any teaching script",
       });
     }
 
-    // ======================================
-    // CREATE / UPDATE DATABASE RECORD
-    // ======================================
+    // ==========================================
+    // CREATE DATABASE VIDEO RECORD
+    // ==========================================
 
-    let teachingVideo = existingVideo;
+    if (!existingVideo) {
+      existingVideo =
+        await TeachingVideo.create({
+          userId,
 
-    if (!teachingVideo) {
-      teachingVideo = await TeachingVideo.create({
-        userId,
+          lessonId: lesson._id,
 
-        lessonId: lesson._id,
+          title:
+            videoPlan.title ||
+            lesson.title ||
+            lesson.topic ||
+            "AI Teacher Lesson",
 
-        title: scenePlan.title || lesson.topic || "AI Teaching Video",
+          provider: "",
 
-        status: "processing",
+          providerVideoId: "",
 
-        scenes: scenePlan.scenes,
+          status: "processing",
 
-        provider: "",
+          scenes: videoPlan.scenes,
 
-        providerVideoId: "",
+          videoUrl: null,
 
-        videoUrl: "",
-      });
+          duration: null,
+
+          error: null,
+        });
     } else {
-      teachingVideo.title =
-        scenePlan.title || lesson.topic || "AI Teaching Video";
+      existingVideo.title =
+        videoPlan.title ||
+        lesson.title ||
+        lesson.topic ||
+        "AI Teacher Lesson";
 
-      teachingVideo.scenes = scenePlan.scenes;
+      existingVideo.scenes =
+        videoPlan.scenes;
 
-      teachingVideo.status = "processing";
+      existingVideo.status =
+        "processing";
+
+      existingVideo.videoUrl = null;
+
+      existingVideo.error = null;
+
+      await existingVideo.save();
     }
 
-    await teachingVideo.save();
+    // ==========================================
+    // GENERATE SYNTHESIA AVATAR VIDEO
+    // ==========================================
 
-    // ======================================
-    // AVATAR VIDEO GENERATION
-    // ======================================
+    console.log(
+      "Sending teaching script to Synthesia..."
+    );
 
-    console.log("Sending teaching script to avatar provider...");
+    const avatarVideo =
+      await generateAvatarVideo({
+        title:
+          videoPlan.title ||
+          lesson.title ||
+          lesson.topic ||
+          "AI Teacher Lesson",
 
-    const avatarResult = await generateAvatarVideo({
-      script,
+        script,
+      });
 
-      title: lesson.topic,
-    });
+    // ==========================================
+    // SAVE SYNTHESIA RESULT
+    // ==========================================
 
-    // ======================================
-    // SAVE AVATAR RESULT
-    // ======================================
+    existingVideo.provider =
+      avatarVideo?.provider ||
+      "synthesia";
 
-    teachingVideo.provider = avatarResult?.provider || "";
+    existingVideo.providerVideoId =
+      avatarVideo?.providerVideoId ||
+      "";
 
-    teachingVideo.providerVideoId = avatarResult?.providerVideoId || "";
+    existingVideo.status =
+      avatarVideo?.status ||
+      "processing";
 
-    teachingVideo.status = avatarResult?.status || "processing";
+    existingVideo.videoUrl =
+      avatarVideo?.videoUrl ||
+      null;
 
-    teachingVideo.videoUrl = avatarResult?.videoUrl || "";
+    await existingVideo.save();
 
-    await teachingVideo.save();
+    // ==========================================
+    // FINAL VIDEO PLAN
+    // ==========================================
 
-    // ======================================
-    // SUCCESS
-    // ======================================
+    const finalVideoPlan = {
+      title:
+        videoPlan.title ||
+        lesson.title ||
+        lesson.topic ||
+        "AI Teacher Lesson",
 
-    const videoPlan = {
-      title: teachingVideo.title || lesson.topic || "AI Teaching Video",
-      scenes: teachingVideo.scenes || [],
+      description:
+        videoPlan.description ||
+        "Learn this topic through AI-generated educational scenes.",
+
+      language:
+        videoPlan.language ||
+        lesson.language ||
+        "English",
+
+      scenes:
+        videoPlan.scenes,
     };
 
-    return res.status(200).json({
+    // ==========================================
+    // RESPONSE
+    // ==========================================
+
+    return res.status(201).json({
       success: true,
 
-      message: "Teaching video generation started",
+      message:
+        "AI Teacher video generation started",
 
-      video: teachingVideo,
-      videoPlan,
+      videoPlan: finalVideoPlan,
+
+      video: existingVideo,
     });
   } catch (error) {
-    console.error("Generate video error:", error);
+    console.error(
+      "Generate video error:",
+      error.response?.data ||
+        error.message
+    );
 
-    // ======================================
-    // GEMINI ERROR
-    // ======================================
+    // ==========================================
+    // GEMINI 429
+    // ==========================================
 
-    if (error?.status === 429) {
+    if (
+      error?.status === 429 ||
+      error?.response?.status === 429
+    ) {
       return res.status(429).json({
         success: false,
-        message: "Gemini API quota exceeded. Please try again later.",
+        message:
+          "Gemini API quota exceeded. Please try again later.",
       });
     }
 
-    if (error?.status === 503) {
+    // ==========================================
+    // GEMINI 503
+    // ==========================================
+
+    if (
+      error?.status === 503 ||
+      error?.response?.status === 503
+    ) {
       return res.status(503).json({
         success: false,
-        message: "Gemini is temporarily unavailable. Please try again.",
+        message:
+          "Gemini is temporarily unavailable. Please try again.",
       });
     }
 
-    // ======================================
+    // ==========================================
     // GENERAL ERROR
-    // ======================================
+    // ==========================================
 
     return res.status(500).json({
       success: false,
-      message: "Failed to generate teaching video",
 
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+      message:
+        error.response?.data?.message ||
+        error.message ||
+        "Failed to generate AI teacher video",
+
+      error:
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : undefined,
     });
   }
 };
 
-// ======================================
-// CHECK VIDEO STATUS
-// ======================================
+// ==========================================
+// GET VIDEO STATUS
+// ==========================================
 
 const getVideoStatus = async (req, res) => {
   try {
-    const video = await TeachingVideo.findOne({
-      _id: req.params.id,
-      userId: req.user._id,
-    });
+    const userId =
+      req.user?._id ||
+      req.user?.userId ||
+      req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message:
+          "User authentication required",
+      });
+    }
+
+    const video =
+      await TeachingVideo.findOne({
+        _id: req.params.id,
+        userId,
+      });
 
     if (!video) {
       return res.status(404).json({
         success: false,
-        message: "Video not found",
+        message:
+          "Teaching video not found",
       });
     }
 
-    // ======================================
-    // CHECK AVATAR STATUS
-    // ======================================
+    // ==========================================
+    // ALREADY COMPLETED
+    // ==========================================
 
-    if (video.status === "processing" && video.providerVideoId) {
-      const result = await getAvatarVideoStatus({
-        providerVideoId: video.providerVideoId,
+    if (
+      video.status === "completed" &&
+      video.videoUrl
+    ) {
+      return res.status(200).json({
+        success: true,
+        video,
       });
+    }
 
+    // ==========================================
+    // CHECK SYNTHESIA
+    // ==========================================
+
+    if (
+      video.provider === "synthesia" &&
+      video.providerVideoId
+    ) {
+      const result =
+        await getAvatarVideoStatus({
+          providerVideoId:
+            video.providerVideoId,
+        });
+
+      // Update status
       if (result?.status) {
-        video.status = result.status;
+        video.status =
+          result.status;
       }
 
+      // Update video URL
       if (result?.videoUrl) {
-        video.videoUrl = result.videoUrl;
+        video.videoUrl =
+          result.videoUrl;
+      }
+
+      // Update duration
+      if (result?.duration) {
+        video.duration =
+          result.duration;
+      }
+
+      // Update error
+      if (result?.error) {
+        video.error =
+          result.error;
       }
 
       await video.save();
@@ -267,31 +494,53 @@ const getVideoStatus = async (req, res) => {
       video,
     });
   } catch (error) {
-    console.error("Video status error:", error);
+    console.error(
+      "Video status error:",
+      error.response?.data ||
+        error.message
+    );
 
     return res.status(500).json({
       success: false,
-      message: "Failed to check video status",
+
+      message:
+        error.response?.data?.message ||
+        error.message ||
+        "Failed to get video status",
     });
   }
 };
 
-// ======================================
+// ==========================================
 // GET VIDEO FOR LESSON
-// ======================================
+// ==========================================
 
 const getLessonVideo = async (req, res) => {
   try {
-    const video = await TeachingVideo.findOne({
-      lessonId: req.params.lessonId,
+    const userId =
+      req.user?._id ||
+      req.user?.userId ||
+      req.user?.id;
 
-      userId: req.user._id,
-    });
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message:
+          "User authentication required",
+      });
+    }
+
+    const video =
+      await TeachingVideo.findOne({
+        lessonId: req.params.lessonId,
+        userId,
+      });
 
     if (!video) {
       return res.status(404).json({
         success: false,
-        message: "Teaching video not found",
+        message:
+          "Teaching video not found",
       });
     }
 
@@ -300,18 +549,22 @@ const getLessonVideo = async (req, res) => {
       video,
     });
   } catch (error) {
-    console.error("Get lesson video error:", error);
+    console.error(
+      "Get lesson video error:",
+      error
+    );
 
     return res.status(500).json({
       success: false,
-      message: "Failed to get teaching video",
+      message:
+        "Failed to get teaching video",
     });
   }
 };
 
-// ======================================
+// ==========================================
 // EXPORT
-// ======================================
+// ==========================================
 
 module.exports = {
   generateVideo,

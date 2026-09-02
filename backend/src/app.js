@@ -2,6 +2,7 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
+const chromaService = require("./services/chromaService");
 
 // =========================
 // ROUTES
@@ -103,6 +104,15 @@ app.use(
     limit: "10mb",
   }),
 );
+
+// =========================
+// INITIALIZE CHROMA
+// =========================
+
+chromaService.initializeCollection().catch((error) => {
+  console.error("Failed to initialize Chroma:", error);
+  // Continue running even if Chroma init fails
+});
 
 // =========================
 // HEALTH CHECK

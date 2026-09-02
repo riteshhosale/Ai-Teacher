@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import AITeacher from "../components/AITeacher";
 import RealtimeTeacher from "../components/RealtimeTeacher";
+import AdaptiveQuestion from "../components/AdaptiveQuestion";
 
 // =====================================================
 // API URL
@@ -474,6 +475,19 @@ ${lessonData.demonstration || ""}
                 topic={lessonData.topic}
                 level={lessonData.level}
                 language={lessonData.language}
+                context={lessonData.explanation}
+              />
+            </div>
+
+            {/* =================================================
+                 ADAPTIVE QUESTION
+             ================================================= */}
+
+            <div className="p-5">
+              <AdaptiveQuestion
+                lessonId={lessonData._id}
+                question="What is force?"
+                expectedAnswer="Force is a push or pull acting on an object."
                 context={lessonData.explanation}
               />
             </div>

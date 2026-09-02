@@ -4,7 +4,8 @@ const path = require("path");
 const { PDFParse } = require("pdf-parse");
 const { GoogleGenAI } = require("@google/genai");
 
-const DocumentChunk = require("../models/DocumentChunk");
+const Document = require("../models/Document");
+const chromaService = require("../services/chromaService");
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -64,27 +65,23 @@ const uploadMaterial = async (req, res) => {
     // ================= CHECK FILE =================
 
     if (!req.file) {
-  return res.status(400).json({
-    success: false,
-    message: "PDF file is required",
-  });
-}
+      return res.status(400).json({
+        success: false,
+        message: "PDF file is required",
+      });
+    }
 
-const userId =
-  req.user?._id ||
-  req.user?.id ||
-  req.user?.userId;
+    const userId = req.user?._id || req.user?.id || req.user?.userId;
 
-console.log("Authenticated user:", req.user);
-console.log("Using userId:", userId);
+    console.log("Authenticated user:", req.user);
+    console.log("Using userId:", userId);
 
-if (!userId) {
-  return res.status(401).json({
-    success: false,
-    message:
-      "User ID not found in authentication token",
-  });
-}
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "User ID not found in authentication token",
+      });
+    }
 
     console.log("");
     console.log("================================");
@@ -131,45 +128,54 @@ if (!userId) {
     console.log("");
     console.log(`Created ${chunks.length} chunks`);
 
-    // ================= DELETE OLD CHUNKS =================
+    // ================= CREATE DOCUMENT RECORD =================
 
-    await DocumentChunk.deleteMany({
+    const document = await Document.create({
       userId: userId,
-      fileName: req.file.originalname,
+      fileName: req.file.filename,
+      originalName: req.file.originalname,
+      pages: result.total,
+      totalChunks: chunks.length,
     });
 
-    console.log("Old chunks removed");
+    console.log("Document record created:", document._id);
 
-    // ================= CREATE EMBEDDINGS =================
+    // ================= DELETE OLD CHUNKS =================
 
-    const savedChunks = [];
+    await chromaService.deleteChunksByDocumentId(document._id);
+
+    console.log("Old chunks removed from Chroma");
+
+    // ================= CREATE EMBEDDINGS & SAVE TO CHROMA =================
+
+    const chunksWithEmbeddings = [];
 
     for (let i = 0; i < chunks.length; i++) {
       console.log(`Creating embedding ${i + 1}/${chunks.length}`);
 
       const embedding = await createEmbedding(chunks[i]);
 
-      // ================= SAVE TO MONGODB =================
-
-      const documentChunk = await DocumentChunk.create({
-        userId: userId,
-
-        fileName: req.file.originalname,
-
-        chunkIndex: i,
-
+      chunksWithEmbeddings.push({
         text: chunks[i],
-
-        embedding,
+        embedding: embedding,
       });
 
-      savedChunks.push(documentChunk);
-
-      console.log(`Saved chunk ${i + 1}/${chunks.length}`);
+      console.log(`Embedding created ${i + 1}/${chunks.length}`);
     }
 
+    // ================= ADD ALL CHUNKS TO CHROMA =================
+
+    await chromaService.addChunks(
+      chunksWithEmbeddings,
+      userId,
+      document._id,
+      req.file.originalname,
+    );
+
     console.log("");
-    console.log(`Successfully saved ${savedChunks.length} chunks`);
+    console.log(
+      `Successfully saved ${chunksWithEmbeddings.length} chunks to Chroma`,
+    );
 
     // ================= SUCCESS =================
 
@@ -179,6 +185,8 @@ if (!userId) {
       message: "Material uploaded and processed successfully",
 
       material: {
+        documentId: document._id,
+
         originalName: req.file.originalname,
 
         filename: req.file.filename,
@@ -187,7 +195,7 @@ if (!userId) {
 
         pages: result.total,
 
-        chunkCount: savedChunks.length,
+        chunkCount: chunksWithEmbeddings.length,
       },
     });
   } catch (error) {
