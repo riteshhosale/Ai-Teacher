@@ -1,46 +1,71 @@
 import { useEffect } from "react";
 
+const DID_SCRIPT_SELECTOR = 'script[data-name="did-agent"]';
+const DID_SCRIPT_URL = "https://agent.d-id.com/v2/index.js";
+
 function DIDAgent() {
   useEffect(() => {
+    const clientKey = import.meta.env.VITE_DID_CLIENT_KEY;
+    const agentId = import.meta.env.VITE_DID_AGENT_ID;
+
+    if (!clientKey || !clientKey.trim()) {
+      console.error(
+        "D-ID Agent: VITE_DID_CLIENT_KEY is missing."
+      );
+      return undefined;
+    }
+
+    if (!agentId || !agentId.trim()) {
+      console.error(
+        "D-ID Agent: VITE_DID_AGENT_ID is missing."
+      );
+      return undefined;
+    }
+
     const existingScript = document.querySelector(
-      'script[data-name="did-agent"]'
+      DID_SCRIPT_SELECTOR
     );
 
     if (existingScript) {
-      return;
+      return undefined;
     }
 
     const script = document.createElement("script");
 
     script.type = "module";
-    script.src = "https://agent.d-id.com/v2/index.js";
+    script.src = DID_SCRIPT_URL;
 
-    script.setAttribute(
-      "data-client-key",
-      import.meta.env.VITE_DID_CLIENT_KEY
-    );
+    script.dataset.clientKey = clientKey.trim();
+    script.dataset.agentId = agentId.trim();
+    script.dataset.mode = "fabio";
+    script.dataset.name = "did-agent";
+    script.dataset.monitor = "true";
+    script.dataset.orientation = "horizontal";
+    script.dataset.position = "right";
+    script.dataset.openMode = "expanded";
 
-    script.setAttribute(
-      "data-agent-id",
-      import.meta.env.VITE_DID_AGENT_ID
-    );
+    const handleLoad = () => {
+      console.info("D-ID Agent loaded successfully.");
+    };
 
-    script.setAttribute("data-mode", "fabio");
-    script.setAttribute("data-name", "did-agent");
-    script.setAttribute("data-monitor", "true");
-    script.setAttribute("data-orientation", "horizontal");
-    script.setAttribute("data-position", "right");
-    script.setAttribute("data-open-mode", "expanded");
+    const handleError = () => {
+      console.error(
+        "D-ID Agent failed to load."
+      );
+    };
+
+    script.addEventListener("load", handleLoad);
+    script.addEventListener("error", handleError);
 
     document.body.appendChild(script);
 
     return () => {
-      const didScript = document.querySelector(
-        'script[data-name="did-agent"]'
-      );
+      script.removeEventListener("load", handleLoad);
+      script.removeEventListener("error", handleError);
 
-      if (didScript) {
-        didScript.remove();
+      // Only remove the exact script created by this component.
+      if (script.parentNode) {
+        script.parentNode.removeChild(script);
       }
     };
   }, []);

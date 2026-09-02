@@ -3,13 +3,11 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
 // =====================================================
-// GENERATE JWT
+// CONFIGURATION
 // =====================================================
 
-const generateToken = (userId) => {
-  const jwtSecret =
-    process.env.JWT_SECRET ||
-    process.env.jwt_secret;
+const getJWTSecret = () => {
+  const jwtSecret = process.env.JWT_SECRET;
 
   if (!jwtSecret) {
     throw new Error(
@@ -17,9 +15,49 @@ const generateToken = (userId) => {
     );
   }
 
+  if (jwtSecret.length < 32) {
+    throw new Error(
+      "JWT_SECRET must be at least 32 characters long"
+    );
+  }
+
+  return jwtSecret;
+};
+
+// =====================================================
+// HELPERS
+// =====================================================
+
+const cleanString = (value) => {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value.trim();
+};
+
+const normalizeEmail = (email) => {
+  return cleanString(email).toLowerCase();
+};
+
+const isValidEmail = (email) => {
+  // Practical validation.
+  // The User schema should ALSO have validation.
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+    email
+  );
+};
+
+// =====================================================
+// GENERATE JWT
+// =====================================================
+
+const generateToken = (userId) => {
+  const jwtSecret = getJWTSecret();
+
   return jwt.sign(
     {
-      userId: userId.toString(),
+      userId: String(userId),
     },
     jwtSecret,
     {
@@ -35,12 +73,22 @@ const generateToken = (userId) => {
 
 const register = async (req, res) => {
   try {
-    const {
-      name,
-      email,
-      password,
-      confirmPassword,
-    } = req.body;
+    const body = req.body || {};
+
+    const name = cleanString(body.name);
+    const email = normalizeEmail(body.email);
+    const password =
+      typeof body.password === "string"
+        ? body.password
+        : "";
+    const confirmPassword =
+      typeof body.confirmPassword === "string"
+        ? body.confirmPassword
+        : "";
+
+    // -------------------------------------------------
+    // VALIDATION
+    // -------------------------------------------------
 
     if (
       !name ||
@@ -51,25 +99,71 @@ const register = async (req, res) => {
       return res.status(400).json({
         success: false,
         message:
-          "Please provide all required fields",
+          "Name, email, password and confirmPassword are required",
+      });
+    }
+
+    if (name.length < 2) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Name must be at least 2 characters long",
+      });
+    }
+
+    if (name.length > 100) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Name must not exceed 100 characters",
+      });
+    }
+
+    if (!isValidEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a valid email address",
+      });
+    }
+
+    if (email.length > 254) {
+      return res.status(400).json({
+        success: false,
+        message: "Email address is too long",
+      });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Password must be at least 8 characters long",
+      });
+    }
+
+    if (password.length > 128) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Password must not exceed 128 characters",
       });
     }
 
     if (password !== confirmPassword) {
       return res.status(400).json({
         success: false,
-        message:
-          "Passwords do not match",
+        message: "Passwords do not match",
       });
     }
 
-    const normalizedEmail =
-      email.trim().toLowerCase();
+    // -------------------------------------------------
+    // CHECK EXISTING USER
+    // -------------------------------------------------
 
     const existingUser =
       await User.findOne({
-        email: normalizedEmail,
-      });
+        email,
+      }).select("_id");
 
     if (existingUser) {
       return res.status(409).json({
@@ -79,21 +173,51 @@ const register = async (req, res) => {
       });
     }
 
-    const hashedPassword =
-      await bcrypt.hash(
-        password,
-        12
-      );
+    // -------------------------------------------------
+    // HASH PASSWORD
+    // -------------------------------------------------
 
-    const user =
-      await User.create({
-        name: name.trim(),
-        email: normalizedEmail,
+    const hashedPassword =
+      await bcrypt.hash(password, 12);
+
+    // -------------------------------------------------
+    // CREATE USER
+    // -------------------------------------------------
+
+    let user;
+
+    try {
+      user = await User.create({
+        name,
+        email,
         password: hashedPassword,
       });
+    } catch (error) {
+      // MongoDB duplicate-key protection.
+      // This protects against a race condition where
+      // another request creates the same email between
+      // findOne() and create().
 
-    const token =
-      generateToken(user._id);
+      if (error?.code === 11000) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "User with this email already exists",
+        });
+      }
+
+      throw error;
+    }
+
+    // -------------------------------------------------
+    // GENERATE TOKEN
+    // -------------------------------------------------
+
+    const token = generateToken(user._id);
+
+    // -------------------------------------------------
+    // RESPONSE
+    // -------------------------------------------------
 
     return res.status(201).json({
       success: true,
@@ -109,21 +233,18 @@ const register = async (req, res) => {
         email: user.email,
       },
     });
-
   } catch (error) {
-
     console.error(
       "REGISTER ERROR:",
-      error
+      error?.message
     );
 
     return res.status(500).json({
       success: false,
 
       message:
-        process.env.NODE_ENV ===
-        "development"
-          ? error.message
+        process.env.NODE_ENV === "development"
+          ? error?.message
           : "Server error",
     });
   }
@@ -135,14 +256,18 @@ const register = async (req, res) => {
 
 const login = async (req, res) => {
   try {
-    const {
-      email,
-      password,
-    } = req.body;
+    const body = req.body || {};
 
-    // -----------------------------------------------
+    const email = normalizeEmail(body.email);
+
+    const password =
+      typeof body.password === "string"
+        ? body.password
+        : "";
+
+    // -------------------------------------------------
     // VALIDATION
-    // -----------------------------------------------
+    // -------------------------------------------------
 
     if (!email || !password) {
       return res.status(400).json({
@@ -152,18 +277,24 @@ const login = async (req, res) => {
       });
     }
 
-    const normalizedEmail =
-      email.trim().toLowerCase();
+    if (!isValidEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Please provide a valid email address",
+      });
+    }
 
-    // -----------------------------------------------
+    // -------------------------------------------------
     // FIND USER
-    // -----------------------------------------------
+    // -------------------------------------------------
 
     const user =
       await User.findOne({
-        email: normalizedEmail,
+        email,
       });
 
+    // Do not reveal whether the email exists.
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -172,15 +303,22 @@ const login = async (req, res) => {
       });
     }
 
-    // -----------------------------------------------
+    // -------------------------------------------------
     // CHECK PASSWORD
-    // -----------------------------------------------
+    // -------------------------------------------------
 
-    if (!user.password) {
-      return res.status(500).json({
+    if (
+      typeof user.password !== "string" ||
+      !user.password
+    ) {
+      console.error(
+        `LOGIN ERROR: User ${user._id} has no password`
+      );
+
+      return res.status(401).json({
         success: false,
         message:
-          "User password is not configured",
+          "Invalid email or password",
       });
     }
 
@@ -198,21 +336,16 @@ const login = async (req, res) => {
       });
     }
 
-    // -----------------------------------------------
+    // -------------------------------------------------
     // GENERATE TOKEN
-    // -----------------------------------------------
+    // -------------------------------------------------
 
     const token =
       generateToken(user._id);
 
-    console.log(
-      "Login successful:",
-      user.email
-    );
-
-    // -----------------------------------------------
+    // -------------------------------------------------
     // RESPONSE
-    // -----------------------------------------------
+    // -------------------------------------------------
 
     return res.status(200).json({
       success: true,
@@ -228,21 +361,18 @@ const login = async (req, res) => {
         email: user.email,
       },
     });
-
   } catch (error) {
-
     console.error(
       "LOGIN ERROR:",
-      error
+      error?.message
     );
 
     return res.status(500).json({
       success: false,
 
       message:
-        process.env.NODE_ENV ===
-        "development"
-          ? error.message
+        process.env.NODE_ENV === "development"
+          ? error?.message
           : "Server error",
     });
   }
@@ -254,32 +384,51 @@ const login = async (req, res) => {
 
 const getMe = async (req, res) => {
   try {
-
-    const userId =
-      req.user?.userId ||
-      req.user?._id ||
+    const rawUserId =
+      req.user?.userId ??
+      req.user?._id ??
       req.user?.id;
 
-    if (!userId) {
+    if (!rawUserId) {
       return res.status(401).json({
         success: false,
         message:
-          "User ID not found in token",
+          "User ID not found in authentication token",
       });
     }
 
+    const userId = String(rawUserId);
+
+    // -------------------------------------------------
+    // VALIDATE USER ID
+    // -------------------------------------------------
+
+    if (!require("mongoose").Types.ObjectId.isValid(userId)) {
+      return res.status(401).json({
+        success: false,
+        message:
+          "Invalid authentication user ID",
+      });
+    }
+
+    // -------------------------------------------------
+    // FIND USER
+    // -------------------------------------------------
+
     const user =
-      await User.findById(
-        userId
-      ).select("-password");
+      await User.findById(userId)
+        .select("-password");
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message:
-          "User not found",
+        message: "User not found",
       });
     }
+
+    // -------------------------------------------------
+    // RESPONSE
+    // -------------------------------------------------
 
     return res.status(200).json({
       success: true,
@@ -290,20 +439,18 @@ const getMe = async (req, res) => {
         email: user.email,
       },
     });
-
   } catch (error) {
-
     console.error(
       "GET ME ERROR:",
-      error
+      error?.message
     );
 
     return res.status(500).json({
       success: false,
+
       message:
-        process.env.NODE_ENV ===
-        "development"
-          ? error.message
+        process.env.NODE_ENV === "development"
+          ? error?.message
           : "Server error",
     });
   }

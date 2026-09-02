@@ -2,6 +2,7 @@ const express = require("express");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
 
 const {
   uploadMaterial,
@@ -16,7 +17,9 @@ const router = express.Router();
 const uploadDir = path.join(process.cwd(), "uploads");
 
 if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
+  fs.mkdirSync(uploadDir, {
+    recursive: true,
+  });
 }
 
 // ================= MULTER STORAGE =================
@@ -27,11 +30,9 @@ const storage = multer.diskStorage({
   },
 
   filename: (req, file, cb) => {
-    const uniqueName =
-      Date.now() +
-      "-" +
-      Math.round(Math.random() * 1e9) +
-      path.extname(file.originalname);
+    const extension = path.extname(file.originalname).toLowerCase();
+
+    const uniqueName = `${crypto.randomUUID()}${extension}`;
 
     cb(null, uniqueName);
   },
@@ -43,33 +44,79 @@ const upload = multer({
   storage,
 
   fileFilter: (req, file, cb) => {
-    console.log("Original name:", file.originalname);
-    console.log("MIME type:", file.mimetype);
+    const originalName =
+      typeof file.originalname === "string"
+        ? file.originalname
+        : "";
+
+    const extension =
+      path.extname(originalName).toLowerCase();
 
     const isPdfMime =
       file.mimetype === "application/pdf";
 
     const isPdfExtension =
-      path.extname(file.originalname).toLowerCase() === ".pdf";
+      extension === ".pdf";
 
-    if (isPdfMime || isPdfExtension) {
-      cb(null, true);
-    } else {
-      cb(new Error("Only PDF files are allowed"));
+    if (isPdfMime && isPdfExtension) {
+      return cb(null, true);
     }
+
+    return cb(
+      new multer.MulterError("LIMIT_UNEXPECTED_FILE", "file")
+    );
   },
 
   limits: {
-    fileSize: 10 * 1024 * 1024,
+    fileSize: 10 * 1024 * 1024, // 10 MB
+    files: 1,
   },
 });
+
+// ================= UPLOAD MIDDLEWARE =================
+
+const handleUpload = (req, res, next) => {
+  upload.single("file")(req, res, (error) => {
+    if (!error) {
+      return next();
+    }
+
+    if (error instanceof multer.MulterError) {
+      if (error.code === "LIMIT_FILE_SIZE") {
+        return res.status(413).json({
+          success: false,
+          message: "PDF file must be 10 MB or smaller",
+        });
+      }
+
+      if (error.code === "LIMIT_UNEXPECTED_FILE") {
+        return res.status(400).json({
+          success: false,
+          message: "Only one PDF file is allowed",
+        });
+      }
+
+      return res.status(400).json({
+        success: false,
+        message: "Invalid file upload",
+      });
+    }
+
+    console.error("Upload error:", error.message);
+
+    return res.status(400).json({
+      success: false,
+      message: "File upload failed",
+    });
+  });
+};
 
 // ================= ROUTE =================
 
 router.post(
   "/upload",
   protect,
-  upload.single("file"),
+  handleUpload,
   uploadMaterial
 );
 

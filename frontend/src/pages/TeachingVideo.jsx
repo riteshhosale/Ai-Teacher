@@ -1,25 +1,141 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import TeachingScene from "../components/TeachingScene";
 
-// =====================================================
-// API URL
-// =====================================================
-
 const API_URL =
-  import.meta.env.VITE_API_URL || "https://ai-teacher-qrj7.onrender.com/api";
+  import.meta.env.VITE_API_URL ||
+  "https://ai-teacher-qrj7.onrender.com/api";
 
-// =====================================================
-// TEACHING VIDEO
-// =====================================================
+const POLL_DELAY = 5000;
+
+const parseResponse = async (response) => {
+  const contentType = response.headers.get("content-type") || "";
+
+  if (contentType.includes("application/json")) {
+    return response.json();
+  }
+
+  const text = await response.text();
+
+  return {
+    message:
+      text || `Request failed with status ${response.status}`,
+  };
+};
+
+const normalizeScenes = (scenes) => {
+  if (!Array.isArray(scenes)) {
+    return [];
+  }
+
+  return scenes
+    .filter((scene) => scene && typeof scene === "object")
+    .map((scene, index) => ({
+      ...scene,
+      sceneNumber:
+        Number.isFinite(Number(scene.sceneNumber))
+          ? Number(scene.sceneNumber)
+          : index + 1,
+
+      title:
+        typeof scene.title === "string" && scene.title.trim()
+          ? scene.title.trim()
+          : `Scene ${index + 1}`,
+
+      duration:
+        Number.isFinite(Number(scene.duration)) &&
+        Number(scene.duration) > 0
+          ? Number(scene.duration)
+          : 20,
+
+      visualType:
+        typeof scene.visualType === "string" &&
+        scene.visualType.trim()
+          ? scene.visualType.trim()
+          : "text",
+
+      script:
+        typeof scene.script === "string"
+          ? scene.script
+          : "",
+
+      onScreenText:
+        typeof scene.onScreenText === "string"
+          ? scene.onScreenText
+          : "",
+    }));
+};
+
+const normalizePlan = (videoPlan) => {
+  if (!videoPlan || typeof videoPlan !== "object") {
+    return null;
+  }
+
+  const scenes = normalizeScenes(videoPlan.scenes);
+
+  if (scenes.length === 0) {
+    return null;
+  }
+
+  return {
+    ...videoPlan,
+
+    title:
+      typeof videoPlan.title === "string" &&
+      videoPlan.title.trim()
+        ? videoPlan.title.trim()
+        : "AI Teaching Video",
+
+    description:
+      typeof videoPlan.description === "string"
+        ? videoPlan.description
+        : "",
+
+    language:
+      typeof videoPlan.language === "string" &&
+      videoPlan.language.trim()
+        ? videoPlan.language
+        : "English",
+
+    scenes,
+  };
+};
+
+const normalizeVideo = (video) => {
+  if (!video || typeof video !== "object") {
+    return null;
+  }
+
+  return {
+    ...video,
+
+    _id:
+      typeof video._id === "string"
+        ? video._id
+        : null,
+
+    status:
+      typeof video.status === "string"
+        ? video.status.toLowerCase()
+        : "unknown",
+
+    videoUrl:
+      typeof video.videoUrl === "string" &&
+      video.videoUrl.trim()
+        ? video.videoUrl
+        : "",
+
+    error:
+      typeof video.error === "string"
+        ? video.error
+        : "",
+  };
+};
 
 function TeachingVideo() {
   const { id } = useParams();
-
-  // ===================================================
-  // STATE
-  // ===================================================
+  const navigate = useNavigate();
 
   const [plan, setPlan] = useState(null);
   const [currentScene, setCurrentScene] = useState(0);
@@ -29,214 +145,278 @@ function TeachingVideo() {
 
   const [error, setError] = useState("");
 
-  // ===================================================
-  // AVATAR VIDEO STATE
-  // ===================================================
-
   const [avatarVideo, setAvatarVideo] = useState(null);
   const [avatarError, setAvatarError] = useState("");
 
-  const pollingRef = useRef(null);
+  const pollTimeoutRef = useRef(null);
+  const mountedRef = useRef(true);
+  const generationRef = useRef(false);
 
-  // ===================================================
-  // POLL AVATAR VIDEO STATUS
-  // ===================================================
-
-  const pollVideoStatus = useCallback(async (videoId) => {
-    try {
-      const token = localStorage.getItem("token");
-
-      if (!token) {
-        throw new Error("Please login first.");
-      }
-
-      const response = await fetch(`${API_URL}/video/status/${videoId}`, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Failed to check video status.");
-      }
-
-      if (!data.video) {
-        throw new Error("Video status not found.");
-      }
-
-      setAvatarVideo(data.video);
-
-      // ===============================================
-      // COMPLETED
-      // ===============================================
-
-      if (data.video.status === "completed") {
-        if (pollingRef.current) {
-          clearInterval(pollingRef.current);
-          pollingRef.current = null;
-        }
-
-        setAvatarError("");
-      }
-
-      // ===============================================
-      // FAILED
-      // ===============================================
-
-      if (data.video.status === "failed") {
-        if (pollingRef.current) {
-          clearInterval(pollingRef.current);
-          pollingRef.current = null;
-        }
-
-        setAvatarError(data.video.error || "Avatar video generation failed.");
-      }
-    } catch (err) {
-      console.error("Video polling error:", err);
-
-      setAvatarError(err.message || "Unable to check avatar video status.");
+  const stopPolling = useCallback(() => {
+    if (pollTimeoutRef.current) {
+      clearTimeout(pollTimeoutRef.current);
+      pollTimeoutRef.current = null;
     }
   }, []);
 
-  // ===================================================
-  // GENERATE TEACHING SCENES
-  // ===================================================
+  const handleUnauthorized = useCallback(() => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+
+    navigate("/login", { replace: true });
+  }, [navigate]);
+
+  const pollVideoStatus = useCallback(
+    async (videoId, signal) => {
+      if (!videoId || signal?.aborted) {
+        return;
+      }
+
+      try {
+        const token = localStorage.getItem("token");
+
+        if (!token) {
+          handleUnauthorized();
+          return;
+        }
+
+        const response = await fetch(
+          `${API_URL}/video/status/${encodeURIComponent(videoId)}`,
+          {
+            method: "GET",
+            headers: {
+              Accept: "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            signal,
+          }
+        );
+
+        const data = await parseResponse(response);
+
+        if (response.status === 401) {
+          handleUnauthorized();
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error(
+            data?.message ||
+              "Failed to check video status."
+          );
+        }
+
+        const video = normalizeVideo(data?.video);
+
+        if (!video) {
+          throw new Error("Video status not found.");
+        }
+
+        if (!mountedRef.current || signal?.aborted) {
+          return;
+        }
+
+        setAvatarVideo(video);
+
+        if (video.status === "completed") {
+          stopPolling();
+          setAvatarError("");
+          return;
+        }
+
+        if (video.status === "failed") {
+          stopPolling();
+
+          setAvatarError(
+            video.error ||
+              "Avatar video generation failed."
+          );
+
+          return;
+        }
+
+        // Continue polling only after the previous request
+        // has finished.
+        pollTimeoutRef.current = setTimeout(() => {
+          void pollVideoStatus(videoId, signal);
+        }, POLL_DELAY);
+      } catch (err) {
+        if (err.name === "AbortError") {
+          return;
+        }
+
+        console.error("Video polling error:", err);
+
+        if (mountedRef.current) {
+          setAvatarError(
+            err instanceof Error
+              ? err.message
+              : "Unable to check avatar video status."
+          );
+        }
+      }
+    },
+    [handleUnauthorized, stopPolling]
+  );
 
   const generateScenes = useCallback(async () => {
+    if (generationRef.current) {
+      return;
+    }
+
+    if (!id) {
+      setError("Lesson ID is missing.");
+      setLoading(false);
+      return;
+    }
+
+    const token = localStorage.getItem("token");
+
+    if (!token) {
+      handleUnauthorized();
+      return;
+    }
+
+    const controller = new AbortController();
+
+    generationRef.current = true;
+
     try {
       setGenerating(true);
       setLoading(true);
       setError("");
       setAvatarError("");
 
-      const token = localStorage.getItem("token");
-
-      if (!token) {
-        throw new Error("Please login first.");
-      }
-
-      if (!id) {
-        throw new Error("Lesson ID is missing.");
-      }
+      stopPolling();
 
       const response = await fetch(`${API_URL}/video/generate`, {
         method: "POST",
-
         headers: {
+          Accept: "application/json",
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-
         body: JSON.stringify({
           lessonId: id,
         }),
+        signal: controller.signal,
       });
 
-      const data = await response.json();
+      const data = await parseResponse(response);
+
+      if (response.status === 401) {
+        handleUnauthorized();
+        return;
+      }
 
       if (!response.ok) {
-        throw new Error(data.message || "Failed to generate teaching video.");
+        throw new Error(
+          data?.message ||
+            "Failed to generate teaching video."
+        );
       }
 
-      // =================================================
-      // VALIDATE VIDEO PLAN
-      // =================================================
+      const normalizedPlan = normalizePlan(data?.videoPlan);
 
-      if (
-        !data.videoPlan ||
-        !Array.isArray(data.videoPlan.scenes) ||
-        data.videoPlan.scenes.length === 0
-      ) {
-        throw new Error("No teaching scenes were generated.");
+      if (!normalizedPlan) {
+        throw new Error(
+          "No valid teaching scenes were generated."
+        );
       }
 
-      // =================================================
-      // SAVE TEACHING PLAN
-      // =================================================
+      if (!mountedRef.current) {
+        return;
+      }
 
-      setPlan(data.videoPlan);
+      setPlan(normalizedPlan);
       setCurrentScene(0);
 
-      // =================================================
-      // AVATAR VIDEO
-      // =================================================
+      const video = normalizeVideo(data?.video);
 
-      if (data.video) {
-        setAvatarVideo(data.video);
+      if (video) {
+        setAvatarVideo(video);
 
-        // Clear previous polling
-        if (pollingRef.current) {
-          clearInterval(pollingRef.current);
-          pollingRef.current = null;
-        }
-
-        // Start polling
-        if (data.video.status === "processing" && data.video._id) {
-          pollingRef.current = setInterval(() => {
-            pollVideoStatus(data.video._id);
-          }, 5000);
+        if (
+          video.status === "processing" &&
+          video._id
+        ) {
+          void pollVideoStatus(
+            video._id,
+            controller.signal
+          );
         }
       }
     } catch (err) {
+      if (err.name === "AbortError") {
+        return;
+      }
+
       console.error("Teaching video error:", err);
 
-      setError(err.message || "Unable to generate teaching video.");
+      if (mountedRef.current) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Unable to generate teaching video."
+        );
 
-      setPlan(null);
+        setPlan(null);
+      }
     } finally {
-      setLoading(false);
-      setGenerating(false);
-    }
-  }, [id, pollVideoStatus]);
+      generationRef.current = false;
 
-  // ===================================================
-  // LOAD VIDEO
-  // ===================================================
-
-  useEffect(() => {
-    if (!id) {
-      setLoading(false);
-      return;
+      if (mountedRef.current) {
+        setLoading(false);
+        setGenerating(false);
+      }
     }
 
-    generateScenes();
-  }, [id, generateScenes]);
-
-  // ===================================================
-  // CLEANUP POLLING
-  // ===================================================
-
-  useEffect(() => {
     return () => {
-      if (pollingRef.current) {
-        clearInterval(pollingRef.current);
-        pollingRef.current = null;
+      controller.abort();
+    };
+  }, [
+    handleUnauthorized,
+    id,
+    pollVideoStatus,
+    stopPolling,
+  ]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    let cleanupRequest;
+
+    const start = async () => {
+      cleanupRequest = await generateScenes();
+    };
+
+    void start();
+
+    return () => {
+      mountedRef.current = false;
+      stopPolling();
+
+      if (typeof cleanupRequest === "function") {
+        cleanupRequest();
       }
     };
-  }, []);
-
-  // ===================================================
-  // NO LESSON ID
-  // ===================================================
+  }, [generateScenes, stopPolling]);
 
   if (!id) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 px-5">
         <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center">
-          <div className="text-5xl">🎬</div>
-
-          <h2 className="mt-4 text-xl font-bold text-slate-900">
+          <h2 className="text-xl font-bold text-slate-900">
             Unable to generate teaching video
           </h2>
 
-          <p className="mt-2 text-sm text-slate-500">Lesson ID is missing.</p>
+          <p className="mt-2 text-sm text-slate-500">
+            Lesson ID is missing.
+          </p>
 
           <Link
             to="/dashboard"
-            className="mt-6 inline-block rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            className="mt-6 inline-block rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
           >
             Back to Dashboard
           </Link>
@@ -245,15 +425,14 @@ function TeachingVideo() {
     );
   }
 
-  // ===================================================
-  // LOADING
-  // ===================================================
-
   if (loading || generating) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 px-5">
         <div className="text-center">
-          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-600" />
+          <div
+            className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-slate-900"
+            aria-hidden="true"
+          />
 
           <p className="mt-4 font-semibold text-slate-900">
             Creating your AI teaching video...
@@ -267,17 +446,11 @@ function TeachingVideo() {
     );
   }
 
-  // ===================================================
-  // ERROR / NO PLAN
-  // ===================================================
-
   if (!plan) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50 px-5">
         <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center">
-          <div className="text-5xl">🎬</div>
-
-          <h2 className="mt-4 text-xl font-bold text-slate-900">
+          <h2 className="text-xl font-bold text-slate-900">
             Unable to generate teaching video
           </h2>
 
@@ -288,16 +461,16 @@ function TeachingVideo() {
           <div className="mt-6 flex justify-center gap-3">
             <button
               type="button"
-              onClick={generateScenes}
+              onClick={() => void generateScenes()}
               disabled={generating}
-              className="rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {generating ? "Trying..." : "Try Again"}
             </button>
 
             <Link
               to={`/lesson/${id}`}
-              className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
             >
               Back
             </Link>
@@ -307,22 +480,22 @@ function TeachingVideo() {
     );
   }
 
-  // ===================================================
-  // SAFETY CHECK
-  // ===================================================
-
-  const scenes = Array.isArray(plan.scenes) ? plan.scenes : [];
+  const scenes = Array.isArray(plan.scenes)
+    ? plan.scenes
+    : [];
 
   if (scenes.length === 0) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50">
         <div className="text-center">
-          <p className="text-slate-600">No teaching scenes available.</p>
+          <p className="text-slate-600">
+            No teaching scenes available.
+          </p>
 
           <button
             type="button"
-            onClick={generateScenes}
-            className="mt-4 rounded-xl bg-indigo-600 px-5 py-3 font-semibold text-white transition hover:bg-indigo-700"
+            onClick={() => void generateScenes()}
+            className="mt-4 rounded-xl bg-slate-900 px-5 py-3 font-semibold text-white transition hover:bg-slate-800"
           >
             Generate Again
           </button>
@@ -331,23 +504,15 @@ function TeachingVideo() {
     );
   }
 
-  // ===================================================
-  // CURRENT SCENE
-  // ===================================================
-
-  const safeSceneIndex = Math.min(currentScene, scenes.length - 1);
+  const safeSceneIndex = Math.min(
+    Math.max(currentScene, 0),
+    scenes.length - 1
+  );
 
   const scene = scenes[safeSceneIndex];
 
-  // ===================================================
-  // TEACHING PROGRESS
-  // ===================================================
-
-  const progress = ((safeSceneIndex + 1) / scenes.length) * 100;
-
-  // ===================================================
-  // NEXT SCENE
-  // ===================================================
+  const progress =
+    ((safeSceneIndex + 1) / scenes.length) * 100;
 
   const handleNext = () => {
     if (safeSceneIndex < scenes.length - 1) {
@@ -355,31 +520,23 @@ function TeachingVideo() {
     }
   };
 
-  // ===================================================
-  // PREVIOUS SCENE
-  // ===================================================
-
   const handlePrevious = () => {
     if (safeSceneIndex > 0) {
       setCurrentScene((value) => value - 1);
     }
   };
 
-  // ===================================================
-  // RENDER
-  // ===================================================
-
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* =================================================
-          NAVBAR
-      ================================================= */}
+      {/* NAVBAR */}
 
       <nav className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
-          <Link to="/dashboard" className="font-bold text-slate-900">
-            AI
-            <span className="text-indigo-600">Teacher</span>
+          <Link
+            to="/dashboard"
+            className="font-bold text-slate-900"
+          >
+            AI<span className="text-indigo-600">Teacher</span>
           </Link>
 
           <Link
@@ -391,116 +548,104 @@ function TeachingVideo() {
         </div>
       </nav>
 
-      {/* =================================================
-          MAIN
-      ================================================= */}
-
       <main className="mx-auto max-w-5xl px-5 py-10">
-        {/* =================================================
-            HEADER
-        ================================================= */}
+        {/* HEADER */}
 
-        <div className="mb-8">
+        <header className="mb-8">
           <p className="text-sm font-semibold text-indigo-600">
             AI TEACHING VIDEO
           </p>
 
           <h1 className="mt-2 text-3xl font-bold text-slate-900">
-            {plan.title || "AI Teaching Video"}
+            {plan.title}
           </h1>
 
           <p className="mt-2 text-slate-500">
             {plan.description ||
               "Learn this topic through AI-generated educational scenes."}
           </p>
-        </div>
+        </header>
 
-        {/* =================================================
-            AVATAR VIDEO GENERATING
-        ================================================= */}
+        {/* AVATAR PROCESSING */}
 
         {avatarVideo?.status === "processing" && (
-          <div className="mb-8 rounded-2xl border border-blue-200 bg-blue-50 p-6">
+          <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-6">
             <div className="flex items-center gap-4">
-              <div className="h-10 w-10 shrink-0 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600" />
+              <div
+                className="h-8 w-8 shrink-0 animate-spin rounded-full border-4 border-slate-200 border-t-indigo-600"
+                aria-hidden="true"
+              />
 
               <div>
-                <h2 className="text-lg font-semibold text-slate-900">
+                <h2 className="font-semibold text-slate-900">
                   AI Teacher video is generating
                 </h2>
 
-                <p className="mt-1 text-sm text-slate-600">
-                  Your human-like teacher is preparing the lesson. This usually
-                  takes a few minutes.
+                <p className="mt-1 text-sm text-slate-500">
+                  Your AI teacher is preparing the lesson.
+                  This may take a few minutes.
                 </p>
               </div>
             </div>
           </div>
         )}
 
-        {/* =================================================
-            AVATAR VIDEO COMPLETED
-        ================================================= */}
+        {/* AVATAR ERROR */}
 
-        {avatarVideo?.status === "completed" && avatarVideo?.videoUrl && (
-          <div className="mb-8 overflow-hidden rounded-2xl border border-green-200 bg-white shadow-sm">
-            <div className="border-b border-green-100 bg-green-50 px-6 py-4">
-              <h2 className="font-semibold text-green-800">
-                AI Teacher Video Ready
-              </h2>
-
-              <p className="mt-1 text-sm text-green-700">
-                Your human-like AI teacher has finished the lesson.
-              </p>
-            </div>
-
-            <div className="p-4">
-              <video
-                controls
-                className="w-full rounded-xl"
-                src={avatarVideo.videoUrl}
-              />
-            </div>
+        {avatarError && (
+          <div
+            role="alert"
+            className="mb-8 rounded-2xl border border-red-200 bg-red-50 p-5"
+          >
+            <p className="text-sm font-medium text-red-700">
+              {avatarError}
+            </p>
           </div>
         )}
 
-        {/* =================================================
-    AVATAR VIDEO COMPLETED
-================================================= */}
+        {/* COMPLETED VIDEO */}
 
-        {avatarVideo?.status === "completed" && avatarVideo?.videoUrl && (
-          <div className="mb-8 overflow-hidden rounded-2xl border border-slate-200 bg-black shadow-lg">
-            <video
-              className="aspect-video w-full"
-              src={avatarVideo.videoUrl}
-              controls
-              playsInline
-            >
-              Your browser does not support video playback.
-            </video>
+        {avatarVideo?.status === "completed" &&
+          avatarVideo?.videoUrl && (
+            <section className="mb-8 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              <div className="border-b border-slate-200 px-6 py-4">
+                <h2 className="font-semibold text-slate-900">
+                  AI Teacher Video
+                </h2>
 
-            <div className="bg-white p-4">
-              <h2 className="font-semibold text-slate-900">AI Teacher</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Watch the complete AI-generated lesson.
+                </p>
+              </div>
 
-              <p className="mt-1 text-sm text-slate-500">
-                Watch the complete AI-generated lesson above.
-              </p>
-            </div>
-          </div>
-        )}
+              <div className="bg-black">
+                <video
+                  controls
+                  playsInline
+                  preload="metadata"
+                  className="aspect-video w-full"
+                  src={avatarVideo.videoUrl}
+                >
+                  Your browser does not support video
+                  playback.
+                </video>
+              </div>
+            </section>
+          )}
 
-        {/* =================================================
-            TEACHING PROGRESS
-        ================================================= */}
+        {/* SCENE PROGRESS */}
 
-        <div className="mb-6">
+        <section aria-label="Teaching progress" className="mb-6">
           <div className="flex justify-between text-xs text-slate-500">
             <span>Teaching progress</span>
 
             <span>{Math.round(progress)}%</span>
           </div>
 
-          <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
+          <div
+            className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200"
+            aria-hidden="true"
+          >
             <div
               className="h-full rounded-full bg-indigo-600 transition-all duration-300"
               style={{
@@ -508,61 +653,52 @@ function TeachingVideo() {
               }}
             />
           </div>
-        </div>
+        </section>
 
-        {/* =================================================
-            CURRENT SCENE
-        ================================================= */}
+        {/* CURRENT SCENE */}
 
-        <TeachingScene scene={scene} language={plan.language || "English"} />
+        <TeachingScene
+          scene={scene}
+          language={plan.language || "English"}
+        />
 
-        {/* =================================================
-            CONTROLS
-        ================================================= */}
+        {/* CONTROLS */}
 
         <div className="mt-5 flex items-center justify-between gap-4">
-          {/* PREVIOUS */}
-
           <button
             type="button"
             disabled={safeSceneIndex === 0}
             onClick={handlePrevious}
-            className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-300 disabled:cursor-not-allowed disabled:opacity-40"
           >
             ← Previous
           </button>
-
-          {/* SCENE COUNT */}
 
           <span className="text-sm text-slate-500">
             Scene {safeSceneIndex + 1} / {scenes.length}
           </span>
 
-          {/* NEXT */}
-
           {safeSceneIndex < scenes.length - 1 ? (
             <button
               type="button"
               onClick={handleNext}
-              className="rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700"
+              className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400"
             >
               Next →
             </button>
           ) : (
             <Link
               to={`/lesson/${id}`}
-              className="rounded-xl bg-green-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-green-700"
+              className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-400"
             >
               Take Assessment →
             </Link>
           )}
         </div>
 
-        {/* =================================================
-            SCENE TIMELINE
-        ================================================= */}
+        {/* SCENE TIMELINE */}
 
-        <div className="mt-8">
+        <section className="mt-8">
           <h2 className="mb-4 text-lg font-bold text-slate-900">
             Video Scenes
           </h2>
@@ -570,10 +706,15 @@ function TeachingVideo() {
           <div className="grid gap-3 sm:grid-cols-2">
             {scenes.map((item, index) => (
               <button
-                key={item.sceneNumber || `scene-${index}`}
+                key={`${item.sceneNumber || "scene"}-${index}`}
                 type="button"
                 onClick={() => setCurrentScene(index)}
-                className={`rounded-xl border p-4 text-left transition ${
+                aria-current={
+                  index === safeSceneIndex
+                    ? "step"
+                    : undefined
+                }
+                className={`rounded-xl border p-4 text-left transition focus:outline-none focus:ring-2 focus:ring-indigo-300 ${
                   index === safeSceneIndex
                     ? "border-indigo-300 bg-indigo-50"
                     : "border-slate-200 bg-white hover:border-indigo-200"
@@ -592,18 +733,18 @@ function TeachingVideo() {
 
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-slate-900">
-                      {item.title || `Scene ${index + 1}`}
+                      {item.title}
                     </p>
 
                     <p className="mt-1 text-xs text-slate-500">
-                      {item.duration || 20}s · {item.visualType || "text"}
+                      {item.duration}s · {item.visualType}
                     </p>
                   </div>
                 </div>
               </button>
             ))}
           </div>
-        </div>
+        </section>
       </main>
     </div>
   );

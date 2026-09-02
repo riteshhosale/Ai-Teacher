@@ -1,122 +1,231 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 const API_URL =
-  import.meta.env.VITE_API_URL || "https://ai-teacher-qrj7.onrender.com/api";
+  import.meta.env.VITE_API_URL ||
+  "https://ai-teacher-qrj7.onrender.com/api";
 
 function Dashboard() {
   const navigate = useNavigate();
+  const mountedRef = useRef(false);
+  const controllerRef = useRef(null);
 
   const [summary, setSummary] = useState(null);
   const [lessons, setLessons] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  // =====================================================
-  // LOAD DASHBOARD
-  // =====================================================
+  const [error, setError] = useState("");
 
   const loadDashboard = useCallback(async () => {
+    const token = localStorage.getItem("token");
+
+    if (!token) {
+      navigate("/login", { replace: true });
+      return;
+    }
+
+    if (controllerRef.current) {
+      controllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    controllerRef.current = controller;
+
     try {
-      const token = localStorage.getItem("token");
-
-      // =================================================
-      // CHECK LOGIN
-      // =================================================
-
-      if (!token) {
-        navigate("/login");
-        return;
-      }
+      setLoading(true);
+      setError("");
 
       const headers = {
         Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
+        Accept: "application/json",
       };
 
-      // =================================================
-      // LOAD ALL DATA
-      // =================================================
+      const requests = [
+        fetch(`${API_URL}/progress/summary`, {
+          method: "GET",
+          headers,
+          signal: controller.signal,
+        }),
 
-      const [summaryResponse, lessonsResponse, documentsResponse] =
-        await Promise.all([
-          fetch(`${API_URL}/progress/summary`, {
-            method: "GET",
-            headers,
-          }),
+        fetch(`${API_URL}/lessons`, {
+          method: "GET",
+          headers,
+          signal: controller.signal,
+        }),
 
-          fetch(`${API_URL}/lessons`, {
-            method: "GET",
-            headers,
-          }),
+        fetch(`${API_URL}/documents`, {
+          method: "GET",
+          headers,
+          signal: controller.signal,
+        }),
+      ];
 
-          fetch(`${API_URL}/documents`, {
-            method: "GET",
-            headers,
-          }),
-        ]);
+      const [
+        summaryResponse,
+        lessonsResponse,
+        documentsResponse,
+      ] = await Promise.all(requests);
 
-      // =================================================
-      // HANDLE AUTH ERROR
-      // =================================================
-
-      if (
-        summaryResponse.status === 401 ||
-        lessonsResponse.status === 401 ||
-        documentsResponse.status === 401
-      ) {
-        localStorage.removeItem("token");
-        navigate("/login");
+      if (!mountedRef.current) {
         return;
       }
 
-      // =================================================
-      // READ RESPONSES
-      // =================================================
+      // =====================================================
+      // AUTH
+      // =====================================================
 
-      const summaryData = await summaryResponse.json();
+      const unauthorized = [
+        summaryResponse,
+        lessonsResponse,
+        documentsResponse,
+      ].some(
+        (response) => response.status === 401
+      );
 
-      const lessonsData = await lessonsResponse.json();
+      if (unauthorized) {
+        localStorage.removeItem("token");
+        navigate("/login", { replace: true });
+        return;
+      }
 
-      const documentsData = await documentsResponse.json();
+      // =====================================================
+      // PARSE RESPONSE SAFELY
+      // =====================================================
 
-      // =================================================
+      const parseResponse = async (response) => {
+        const contentType =
+          response.headers.get("content-type") || "";
+
+        if (
+          !contentType
+            .toLowerCase()
+            .includes("application/json")
+        ) {
+          return {
+            success: false,
+            message:
+              "Server returned an unexpected response.",
+          };
+        }
+
+        try {
+          return await response.json();
+        } catch {
+          return {
+            success: false,
+            message: "Invalid server response.",
+          };
+        }
+      };
+
+      const [
+        summaryData,
+        lessonsData,
+        documentsData,
+      ] = await Promise.all([
+        parseResponse(summaryResponse),
+        parseResponse(lessonsResponse),
+        parseResponse(documentsResponse),
+      ]);
+
+      if (!mountedRef.current) {
+        return;
+      }
+
+      // =====================================================
       // SUMMARY
-      // =================================================
+      // =====================================================
 
-      if (summaryData.success) {
-        setSummary(summaryData.summary || {});
+      if (
+        summaryResponse.ok &&
+        summaryData?.success
+      ) {
+        setSummary(
+          summaryData.summary &&
+            typeof summaryData.summary === "object"
+            ? summaryData.summary
+            : {}
+        );
+      } else {
+        setSummary({});
       }
 
-      // =================================================
+      // =====================================================
       // LESSONS
-      // =================================================
+      // =====================================================
 
-      if (lessonsData.success) {
-        setLessons(
-          Array.isArray(lessonsData.lessons) ? lessonsData.lessons : [],
-        );
+      if (
+        lessonsResponse.ok &&
+        lessonsData?.success &&
+        Array.isArray(lessonsData.lessons)
+      ) {
+        setLessons(lessonsData.lessons);
+      } else {
+        setLessons([]);
       }
 
-      // =================================================
+      // =====================================================
       // DOCUMENTS
-      // =================================================
+      // =====================================================
 
-      if (documentsData.success) {
-        setDocuments(
-          Array.isArray(documentsData.documents) ? documentsData.documents : [],
+      if (
+        documentsResponse.ok &&
+        documentsData?.success &&
+        Array.isArray(documentsData.documents)
+      ) {
+        setDocuments(documentsData.documents);
+      } else {
+        setDocuments([]);
+      }
+
+      // Show a general warning only when all requests failed.
+      const allFailed =
+        !summaryResponse.ok &&
+        !lessonsResponse.ok &&
+        !documentsResponse.ok;
+
+      if (allFailed) {
+        setError(
+          "Unable to load your dashboard right now."
         );
       }
-    } catch (error) {
-      console.error("Dashboard error:", error);
+    } catch (err) {
+      if (err?.name === "AbortError") {
+        return;
+      }
+
+      console.error("Dashboard error:", err);
+
+      if (mountedRef.current) {
+        setError(
+          err?.message ||
+            "Unable to load your dashboard."
+        );
+      }
     } finally {
-      setLoading(false);
+      if (
+        mountedRef.current &&
+        controllerRef.current === controller
+      ) {
+        setLoading(false);
+        controllerRef.current = null;
+      }
     }
   }, [navigate]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    mountedRef.current = true;
+
     void loadDashboard();
+
+    return () => {
+      mountedRef.current = false;
+
+      if (controllerRef.current) {
+        controllerRef.current.abort();
+        controllerRef.current = null;
+      }
+    };
   }, [loadDashboard]);
 
   // =====================================================
@@ -124,9 +233,16 @@ function Dashboard() {
   // =====================================================
 
   const logout = () => {
+    if (controllerRef.current) {
+      controllerRef.current.abort();
+      controllerRef.current = null;
+    }
+
     localStorage.removeItem("token");
 
-    navigate("/login");
+    navigate("/login", {
+      replace: true,
+    });
   };
 
   // =====================================================
@@ -135,23 +251,14 @@ function Dashboard() {
 
   if (loading) {
     return (
-      <div
-        className="flex min-h-screen
-        items-center justify-center
-        bg-slate-50"
-      >
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
         <div className="text-center">
           <div
-            className="mx-auto h-10 w-10
-            animate-spin rounded-full
-            border-4 border-slate-200
-            border-t-indigo-600"
+            className="mx-auto h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-slate-800"
+            aria-hidden="true"
           />
 
-          <p
-            className="mt-4 text-sm
-            text-slate-500"
-          >
+          <p className="mt-4 text-sm text-slate-500">
             Loading your dashboard...
           </p>
         </div>
@@ -159,77 +266,84 @@ function Dashboard() {
     );
   }
 
-  // =====================================================
-  // DASHBOARD
-  // =====================================================
+  const completedLessons =
+    Number(summary?.completedLessons);
+
+  const totalQuestions =
+    Number(summary?.totalQuestions);
+
+  const averageScore =
+    Number(summary?.averageScore);
+
+  const safeCompletedLessons =
+    Number.isFinite(completedLessons) &&
+    completedLessons >= 0
+      ? completedLessons
+      : 0;
+
+  const safeTotalQuestions =
+    Number.isFinite(totalQuestions) &&
+    totalQuestions >= 0
+      ? totalQuestions
+      : 0;
+
+  const safeAverageScore =
+    Number.isFinite(averageScore)
+      ? Math.min(
+          100,
+          Math.max(0, averageScore)
+        )
+      : 0;
+
+  const nextTopic =
+    typeof summary?.nextTopic === "string"
+      ? summary.nextTopic.trim()
+      : "";
+
+  const weakTopics = Array.isArray(
+    summary?.weakTopics
+  )
+    ? summary.weakTopics.filter(
+        (topic) =>
+          typeof topic === "string" &&
+          topic.trim()
+      )
+    : [];
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* =================================================
+      {/* =====================================================
           NAVBAR
-      ================================================= */}
+      ===================================================== */}
 
-      <nav
-        className="border-b
-        border-slate-200 bg-white"
-      >
-        <div
-          className="mx-auto flex h-16
-          max-w-7xl items-center
-          justify-between px-5"
-        >
-          {/* LOGO */}
-
-          <Link to="/dashboard" className="flex items-center gap-2">
-            <div
-              className="flex h-9 w-9
-              items-center justify-center
-              rounded-lg bg-indigo-600"
-            >
-              <span
-                className="text-xs
-                font-bold text-white"
-              >
-                AI
-              </span>
-            </div>
-
-            <span className="font-bold">
-              AI
-              <span className="text-indigo-600">Teacher</span>
-            </span>
+      <nav className="border-b border-slate-200 bg-white">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5">
+          <Link
+            to="/dashboard"
+            className="text-lg font-semibold tracking-tight text-slate-900"
+          >
+            AI<span className="text-slate-500">Teacher</span>
           </Link>
 
-          {/* NAVIGATION */}
-
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <Link
               to="/progress"
-              className="hidden rounded-lg
-              px-4 py-2 text-sm
-              font-medium text-slate-600
-              hover:bg-slate-100 sm:block"
+              className="hidden rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-slate-900 sm:block"
             >
               Progress
             </Link>
 
             <Link
               to="/learning-path"
-              className="hidden rounded-lg
-              px-4 py-2 text-sm
-              font-medium text-slate-600
-              hover:bg-slate-100 sm:block"
+              className="hidden rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-slate-900 sm:block"
             >
-              Learning Path
+              Learning path
             </Link>
 
             <button
               type="button"
               onClick={logout}
-              className="rounded-lg
-              px-4 py-2 text-sm
-              font-medium text-slate-600
-              hover:bg-slate-100"
+              className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
             >
               Logout
             </button>
@@ -237,267 +351,118 @@ function Dashboard() {
         </div>
       </nav>
 
-      {/* =================================================
+      {/* =====================================================
           MAIN
-      ================================================= */}
+      ===================================================== */}
 
-      <main
-        className="mx-auto max-w-7xl
-        px-5 py-10"
-      >
-        {/* =================================================
+      <main className="mx-auto max-w-7xl px-5 py-10">
+        {/* =====================================================
+            ERROR
+        ===================================================== */}
+
+        {error && (
+          <div
+            role="alert"
+            className="mb-6 rounded-xl border border-red-100 bg-white p-4 text-sm text-red-700"
+          >
+            {error}
+          </div>
+        )}
+
+        {/* =====================================================
             WELCOME
-        ================================================= */}
+        ===================================================== */}
 
         <section>
-          <p
-            className="text-sm font-semibold
-            text-indigo-600"
-          >
-            YOUR LEARNING SPACE
+          <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
+            Learning space
           </p>
 
-          <h1
-            className="mt-2 text-3xl
-            font-bold"
-          >
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">
             Welcome back
           </h1>
 
-          <p className="mt-2 text-slate-500">
-            Continue learning with your personalized AI Teacher.
+          <p className="mt-2 max-w-xl text-sm leading-6 text-slate-500">
+            Continue learning with your personalized AI
+            Teacher.
           </p>
         </section>
 
-        {/* =================================================
-            ACTION CARDS
-        ================================================= */}
+        {/* =====================================================
+            ACTIONS
+        ===================================================== */}
 
-        <section
-          className="mt-8 grid gap-5
-          md:grid-cols-3"
-        >
-          {/* START LEARNING */}
-
-          <Link
+        <section className="mt-8 grid gap-4 md:grid-cols-3">
+          <DashboardAction
             to="/learn"
-            className="group rounded-2xl
-            bg-indigo-600 p-7 text-white
-            transition hover:bg-indigo-700"
-          >
-            <div
-              className="flex items-start
-              justify-between"
-            >
-              <div>
-                <div
-                  className="flex h-11 w-11
-                  items-center justify-center
-                  rounded-xl bg-white/10
-                  text-xl"
-                >
-                  🧠
-                </div>
+            title="Start learning"
+            description="Choose a topic and create a personalized lesson."
+            primary
+          />
 
-                <h2
-                  className="mt-5 text-2xl
-                  font-bold"
-                >
-                  Start Learning
-                </h2>
-
-                <p
-                  className="mt-2 max-w-md
-                  text-sm leading-6
-                  text-indigo-100"
-                >
-                  Choose a topic and let your AI Teacher create a personalized
-                  lesson.
-                </p>
-              </div>
-
-              <span
-                className="text-2xl
-                transition
-                group-hover:translate-x-1"
-              >
-                →
-              </span>
-            </div>
-          </Link>
-
-          {/* UPLOAD */}
-
-          <Link
+          <DashboardAction
             to="/upload"
-            className="group rounded-2xl
-            border border-slate-200
-            bg-white p-7 transition
-            hover:border-indigo-300
-            hover:shadow-sm"
-          >
-            <div
-              className="flex items-start
-              justify-between"
-            >
-              <div>
-                <div
-                  className="flex h-11 w-11
-                  items-center justify-center
-                  rounded-xl bg-indigo-50
-                  text-xl"
-                >
-                  📄
-                </div>
+            title="Upload material"
+            description="Learn directly from your notes and study material."
+          />
 
-                <h2
-                  className="mt-5 text-2xl
-                  font-bold"
-                >
-                  Upload Material
-                </h2>
-
-                <p
-                  className="mt-2 max-w-md
-                  text-sm leading-6
-                  text-slate-500"
-                >
-                  Upload your notes or textbook and learn directly from your own
-                  study material.
-                </p>
-              </div>
-
-              <span
-                className="text-2xl
-                text-slate-400 transition
-                group-hover:translate-x-1"
-              >
-                →
-              </span>
-            </div>
-          </Link>
-
-          {/* LEARNING PATH */}
-
-          <Link
+          <DashboardAction
             to="/learning-path"
-            className="group rounded-2xl
-            border border-slate-200
-            bg-white p-7 transition
-            hover:border-indigo-300
-            hover:shadow-sm"
-          >
-            <div
-              className="flex items-start
-              justify-between"
-            >
-              <div>
-                <div
-                  className="flex h-11 w-11
-                  items-center justify-center
-                  rounded-xl bg-indigo-50
-                  text-xl"
-                >
-                  🧭
-                </div>
-
-                <h2
-                  className="mt-5 text-2xl
-                  font-bold"
-                >
-                  Learning Path
-                </h2>
-
-                <p
-                  className="mt-2 max-w-md
-                  text-sm leading-6
-                  text-slate-500"
-                >
-                  See your personalized journey and what you should learn next.
-                </p>
-              </div>
-
-              <span
-                className="text-2xl
-                text-slate-400 transition
-                group-hover:translate-x-1"
-              >
-                →
-              </span>
-            </div>
-          </Link>
+            title="Learning path"
+            description="See what you have learned and what comes next."
+          />
         </section>
 
-        {/* =================================================
+        {/* =====================================================
             STATS
-        ================================================= */}
+        ===================================================== */}
 
-        <section
-          className="mt-8 grid gap-5
-          sm:grid-cols-2 lg:grid-cols-4"
-        >
+        <section className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
             title="Lessons"
-            value={summary?.completedLessons || 0}
-            icon="📚"
+            value={safeCompletedLessons}
           />
 
           <StatCard
             title="Questions"
-            value={summary?.totalQuestions || 0}
-            icon="❓"
+            value={safeTotalQuestions}
           />
 
           <StatCard
-            title="Average Score"
-            value={`${summary?.averageScore || 0}%`}
-            icon="📊"
+            title="Average score"
+            value={`${Math.round(
+              safeAverageScore
+            )}%`}
           />
 
           <StatCard
-            title="Study Materials"
+            title="Study materials"
             value={documents.length}
-            icon="📄"
           />
         </section>
 
-        {/* =================================================
+        {/* =====================================================
             CONTENT
-        ================================================= */}
+        ===================================================== */}
 
-        <section
-          className="mt-8 grid gap-6
-          lg:grid-cols-3"
-        >
-          {/* =================================================
-              RECENT LESSONS
-          ================================================= */}
+        <section className="mt-8 grid gap-6 lg:grid-cols-3">
+          {/* RECENT LESSONS */}
 
-          <div
-            className="rounded-2xl
-            border border-slate-200
-            bg-white lg:col-span-2"
-          >
-            <div
-              className="flex items-center
-              justify-between border-b
-              border-slate-100 p-6"
-            >
+          <section className="rounded-2xl border border-slate-200 bg-white lg:col-span-2">
+            <div className="flex items-center justify-between border-b border-slate-100 p-5 sm:p-6">
               <div>
-                <h2 className="font-bold">Recent Lessons</h2>
+                <h2 className="font-semibold text-slate-900">
+                  Recent lessons
+                </h2>
 
-                <p
-                  className="mt-1 text-xs
-                  text-slate-500"
-                >
+                <p className="mt-1 text-xs text-slate-400">
                   Your latest learning activity
                 </p>
               </div>
 
               <Link
                 to="/progress"
-                className="text-sm
-                font-semibold text-indigo-600"
+                className="text-sm font-medium text-slate-700 hover:text-slate-900"
               >
                 View all
               </Link>
@@ -505,287 +470,298 @@ function Dashboard() {
 
             {lessons.length === 0 ? (
               <div className="p-8 text-center">
-                <div className="text-3xl">📚</div>
-
-                <p
-                  className="mt-3
-                  font-semibold"
-                >
+                <p className="font-medium text-slate-900">
                   No lessons yet
                 </p>
 
-                <p
-                  className="mt-1 text-sm
-                  text-slate-500"
-                >
+                <p className="mt-1 text-sm text-slate-500">
                   Start your first AI lesson.
                 </p>
 
                 <Link
                   to="/learn"
-                  className="mt-4
-                  inline-block rounded-lg
-                  bg-indigo-600 px-4 py-2
-                  text-sm font-semibold
-                  text-white"
+                  className="mt-4 inline-flex rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
                 >
-                  Start Learning
+                  Start learning
                 </Link>
               </div>
             ) : (
-              <div
-                className="divide-y
-                divide-slate-100"
-              >
-                {lessons.slice(0, 5).map((lesson) => {
-                  const totalQuestions = lesson.questions?.length || 0;
+              <div className="divide-y divide-slate-100">
+                {lessons
+                  .slice(0, 5)
+                  .map((lesson, index) => {
+                    if (
+                      !lesson ||
+                      typeof lesson !==
+                        "object"
+                    ) {
+                      return null;
+                    }
 
-                  const score = Number(lesson.score) || 0;
+                    const lessonId =
+                      typeof lesson._id ===
+                      "string"
+                        ? lesson._id
+                        : "";
 
-                  const percentage =
-                    totalQuestions > 0
-                      ? Math.round((score / totalQuestions) * 100)
-                      : 0;
+                    if (!lessonId) {
+                      return null;
+                    }
 
-                  return (
-                    <Link
-                      key={lesson._id}
-                      to={`/lesson/${lesson._id}`}
-                      className="flex
-                        items-center
-                        justify-between p-5
-                        transition
-                        hover:bg-slate-50"
-                    >
-                      <div className="min-w-0">
-                        <h3
-                          className="truncate
-                            font-semibold"
-                        >
-                          {lesson.topic}
-                        </h3>
+                    const topic =
+                      typeof lesson.topic ===
+                      "string"
+                        ? lesson.topic.trim()
+                        : "Untitled lesson";
 
-                        <p
-                          className="mt-1
-                            text-xs
-                            text-slate-500"
-                        >
-                          {lesson.level}
-                          {" · "}
-                          {lesson.language}
-                        </p>
-                      </div>
+                    const level =
+                      typeof lesson.level ===
+                      "string"
+                        ? lesson.level.trim()
+                        : "";
 
-                      <div
-                        className="ml-4
-                          flex items-center
-                          gap-4"
+                    const lessonLanguage =
+                      typeof lesson.language ===
+                      "string"
+                        ? lesson.language.trim()
+                        : "";
+
+                    const questions =
+                      Array.isArray(
+                        lesson.questions
+                      )
+                        ? lesson.questions
+                        : [];
+
+                    const questionCount =
+                      questions.length;
+
+                    const rawScore =
+                      Number(lesson.score);
+
+                    const score =
+                      Number.isFinite(
+                        rawScore
+                      )
+                        ? Math.max(
+                            0,
+                            rawScore
+                          )
+                        : 0;
+
+                    const percentage =
+                      questionCount > 0
+                        ? Math.min(
+                            100,
+                            Math.max(
+                              0,
+                              Math.round(
+                                (score /
+                                  questionCount) *
+                                  100
+                              )
+                            )
+                          )
+                        : 0;
+
+                    return (
+                      <Link
+                        key={lessonId}
+                        to={`/lesson/${encodeURIComponent(
+                          lessonId
+                        )}`}
+                        className="flex items-center justify-between gap-4 p-5 transition hover:bg-slate-50"
                       >
-                        <div className="text-right">
-                          <p className="font-bold">{percentage}%</p>
+                        <div className="min-w-0">
+                          <h3 className="truncate text-sm font-semibold text-slate-900">
+                            {topic}
+                          </h3>
 
-                          <p
-                            className="text-xs
-                              text-slate-400"
-                          >
-                            Score
-                          </p>
+                          {(level ||
+                            lessonLanguage) && (
+                            <p className="mt-1 truncate text-xs text-slate-400">
+                              {[
+                                level,
+                                lessonLanguage,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </p>
+                          )}
                         </div>
 
-                        <span className="text-slate-400">→</span>
-                      </div>
-                    </Link>
-                  );
-                })}
+                        <div className="flex shrink-0 items-center gap-4">
+                          <div className="text-right">
+                            <p className="text-sm font-semibold text-slate-900">
+                              {percentage}%
+                            </p>
+
+                            <p className="text-xs text-slate-400">
+                              Score
+                            </p>
+                          </div>
+
+                          <span
+                            className="text-slate-400"
+                            aria-hidden="true"
+                          >
+                            →
+                          </span>
+                        </div>
+                      </Link>
+                    );
+                  })}
               </div>
             )}
-          </div>
+          </section>
 
-          {/* =================================================
-              AI RECOMMENDATION
-          ================================================= */}
+          {/* RECOMMENDATION */}
 
-          <div
-            className="rounded-2xl
-            border border-slate-200
-            bg-white p-6"
-          >
-            <div
-              className="flex h-10 w-10
-              items-center justify-center
-              rounded-xl bg-indigo-50"
-            >
-              🎯
-            </div>
-
-            <p
-              className="mt-5 text-xs
-              font-semibold text-indigo-600"
-            >
-              AI RECOMMENDATION
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
+              Recommendation
             </p>
 
-            <h2
-              className="mt-2 text-xl
-              font-bold"
-            >
+            <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-900">
               Keep learning
             </h2>
 
-            <p
-              className="mt-3 text-sm
-              leading-6 text-slate-500"
-            >
-              {summary?.nextTopic
-                ? `Your next recommended topic is ${summary.nextTopic}.`
+            <p className="mt-3 text-sm leading-6 text-slate-500">
+              {nextTopic
+                ? `Your next recommended topic is ${nextTopic}.`
                 : "Complete a lesson to receive a personalized recommendation."}
             </p>
 
-            {summary?.weakTopics?.length > 0 && (
-              <div className="mt-5">
-                <p
-                  className="text-xs
-                  font-semibold
-                  text-slate-500"
-                >
-                  Topics to review
+            {weakTopics.length > 0 && (
+              <div className="mt-6">
+                <p className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
+                  Review
                 </p>
 
-                <div
-                  className="mt-3 flex
-                  flex-wrap gap-2"
-                >
-                  {summary.weakTopics.slice(0, 3).map((topic) => (
-                    <span
-                      key={topic}
-                      className="rounded-full
-                        bg-orange-50 px-3 py-1
-                        text-xs font-medium
-                        text-orange-600"
-                    >
-                      {topic}
-                    </span>
-                  ))}
+                <div className="mt-3 space-y-2">
+                  {weakTopics
+                    .slice(0, 3)
+                    .map(
+                      (topic, index) => (
+                        <p
+                          key={`${topic}-${index}`}
+                          className="text-sm text-slate-600"
+                        >
+                          {topic.trim()}
+                        </p>
+                      )
+                    )}
                 </div>
               </div>
             )}
 
             <Link
               to="/learn"
-              className="mt-6 block
-              rounded-xl bg-indigo-600
-              px-4 py-3 text-center
-              text-sm font-semibold
-              text-white hover:bg-indigo-700"
+              className="mt-6 block rounded-xl bg-slate-900 px-4 py-3 text-center text-sm font-medium text-white transition hover:bg-slate-800"
             >
-              Continue Learning →
+              Continue learning
             </Link>
-          </div>
+          </section>
         </section>
 
-        {/* =================================================
+        {/* =====================================================
             DOCUMENTS
-        ================================================= */}
+        ===================================================== */}
 
-        <section
-          className="mt-8 rounded-2xl
-          border border-slate-200
-          bg-white"
-        >
-          <div
-            className="flex items-center
-            justify-between border-b
-            border-slate-100 p-6"
-          >
+        <section className="mt-8 rounded-2xl border border-slate-200 bg-white">
+          <div className="flex items-center justify-between gap-4 border-b border-slate-100 p-5 sm:p-6">
             <div>
-              <h2 className="font-bold">Your Study Materials</h2>
+              <h2 className="font-semibold text-slate-900">
+                Study materials
+              </h2>
 
-              <p
-                className="mt-1 text-xs
-                text-slate-500"
-              >
+              <p className="mt-1 text-xs text-slate-400">
                 Documents available to your AI Teacher
               </p>
             </div>
 
             <Link
               to="/upload"
-              className="rounded-lg
-              bg-indigo-50 px-4 py-2
-              text-sm font-semibold
-              text-indigo-600"
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
             >
-              + Upload
+              Upload
             </Link>
           </div>
 
           {documents.length === 0 ? (
             <div className="p-8 text-center">
-              <p
-                className="text-sm
-                text-slate-500"
-              >
+              <p className="text-sm text-slate-500">
                 No study materials uploaded.
               </p>
 
               <Link
                 to="/upload"
-                className="mt-3
-                inline-block text-sm
-                font-semibold
-                text-indigo-600"
+                className="mt-3 inline-block text-sm font-medium text-slate-800 underline underline-offset-4"
               >
-                Upload your first PDF →
+                Upload your first PDF
               </Link>
             </div>
           ) : (
-            <div
-              className="grid gap-4 p-5
-              sm:grid-cols-2 lg:grid-cols-3"
-            >
-              {documents.slice(0, 6).map((document) => (
-                <div
-                  key={document._id}
-                  className="rounded-xl
-                    border border-slate-200
-                    p-4"
-                >
-                  <div
-                    className="flex
-                      items-start gap-3"
-                  >
+            <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">
+              {documents
+                .slice(0, 6)
+                .map((document, index) => {
+                  if (
+                    !document ||
+                    typeof document !==
+                      "object"
+                  ) {
+                    return null;
+                  }
+
+                  const documentId =
+                    typeof document._id ===
+                    "string"
+                      ? document._id
+                      : `document-${index}`;
+
+                  const originalName =
+                    typeof document.originalName ===
+                    "string"
+                      ? document.originalName.trim()
+                      : "Untitled document";
+
+                  const pages = Number(
+                    document.pages
+                  );
+
+                  const chunks = Number(
+                    document.totalChunks
+                  );
+
+                  const safePages =
+                    Number.isFinite(pages) &&
+                    pages >= 0
+                      ? pages
+                      : 0;
+
+                  const safeChunks =
+                    Number.isFinite(chunks) &&
+                    chunks >= 0
+                      ? chunks
+                      : 0;
+
+                  return (
                     <div
-                      className="flex h-10
-                        w-10 shrink-0
-                        items-center
-                        justify-center
-                        rounded-lg
-                        bg-red-50"
+                      key={documentId}
+                      className="rounded-xl border border-slate-200 p-4"
                     >
-                      📄
-                    </div>
-
-                    <div className="min-w-0">
-                      <p
-                        className="truncate
-                          text-sm font-semibold"
-                      >
-                        {document.originalName}
+                      <p className="truncate text-sm font-medium text-slate-900">
+                        {originalName}
                       </p>
 
-                      <p
-                        className="mt-1 text-xs
-                          text-slate-500"
-                      >
-                        {document.pages || 0}
-                        {" pages · "}
-                        {document.totalChunks || 0}
-                        {" chunks"}
+                      <p className="mt-2 text-xs text-slate-400">
+                        {safePages} pages ·{" "}
+                        {safeChunks} chunks
                       </p>
                     </div>
-                  </div>
-                </div>
-              ))}
+                  );
+                })}
             </div>
           )}
         </section>
@@ -794,35 +770,61 @@ function Dashboard() {
   );
 }
 
-// =====================================================
-// STAT CARD
-// =====================================================
-
-function StatCard({ title, value, icon }) {
+function DashboardAction({
+  to,
+  title,
+  description,
+  primary = false,
+}) {
   return (
-    <div
-      className="rounded-2xl
-      border border-slate-200
-      bg-white p-6"
+    <Link
+      to={to}
+      className={`group rounded-2xl border p-6 transition ${
+        primary
+          ? "border-slate-900 bg-slate-900 text-white hover:bg-slate-800"
+          : "border-slate-200 bg-white text-slate-900 hover:border-slate-300 hover:bg-slate-50"
+      }`}
     >
-      <div
-        className="flex items-center
-        justify-between"
-      >
-        <p
-          className="text-sm
-          text-slate-500"
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold">
+            {title}
+          </h2>
+
+          <p
+            className={`mt-2 text-sm leading-6 ${
+              primary
+                ? "text-slate-300"
+                : "text-slate-500"
+            }`}
+          >
+            {description}
+          </p>
+        </div>
+
+        <span
+          className={`text-xl transition group-hover:translate-x-1 ${
+            primary
+              ? "text-slate-400"
+              : "text-slate-400"
+          }`}
+          aria-hidden="true"
         >
-          {title}
-        </p>
-
-        <span className="text-xl">{icon}</span>
+          →
+        </span>
       </div>
+    </Link>
+  );
+}
 
-      <p
-        className="mt-3 text-3xl
-        font-bold"
-      >
+function StatCard({ title, value }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5">
+      <p className="text-sm text-slate-500">
+        {title}
+      </p>
+
+      <p className="mt-3 text-3xl font-semibold tracking-tight text-slate-900">
         {value}
       </p>
     </div>

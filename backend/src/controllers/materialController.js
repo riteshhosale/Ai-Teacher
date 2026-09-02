@@ -1,68 +1,176 @@
-const fs = require("fs");
+const fs = require("fs/promises");
 const path = require("path");
+const mongoose = require("mongoose");
 
 const { PDFParse } = require("pdf-parse");
 const { GoogleGenAI } = require("@google/genai");
 
 const Document = require("../models/Document");
 const chromaService = require("../services/chromaService");
+const { createEmbedding } = require("../services/embeddingService");
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-});
+// =====================================================
+// CONSTANTS
+// =====================================================
 
-// ================= CHUNK TEXT =================
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+const CHUNK_SIZE = 1000;
+const CHUNK_OVERLAP = 200;
+const EMBEDDING_CONCURRENCY = 3;
+const CHROMA_BATCH_SIZE = 100;
 
-const createChunks = (text, chunkSize = 1000, overlap = 200) => {
+// =====================================================
+// GEMINI CLIENT
+// =====================================================
+
+const getAIClient = () => {
+  if (!process.env.GEMINI_API_KEY) {
+    throw new Error(
+      "GEMINI_API_KEY is not configured"
+    );
+  }
+
+  return new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+  });
+};
+
+// =====================================================
+// CREATE CHUNKS
+// =====================================================
+
+const createChunks = (
+  text,
+  chunkSize = CHUNK_SIZE,
+  overlap = CHUNK_OVERLAP
+) => {
+  if (
+    typeof text !== "string" ||
+    !text.trim()
+  ) {
+    return [];
+  }
+
+  if (
+    !Number.isInteger(chunkSize) ||
+    chunkSize <= 0
+  ) {
+    throw new Error(
+      "chunkSize must be a positive integer"
+    );
+  }
+
+  if (
+    !Number.isInteger(overlap) ||
+    overlap < 0 ||
+    overlap >= chunkSize
+  ) {
+    throw new Error(
+      "overlap must be >= 0 and smaller than chunkSize"
+    );
+  }
+
   const chunks = [];
+  const step = chunkSize - overlap;
 
   let start = 0;
 
   while (start < text.length) {
-    const end = Math.min(start + chunkSize, text.length);
+    const end = Math.min(
+      start + chunkSize,
+      text.length
+    );
 
-    const chunk = text.slice(start, end).trim();
+    const chunk = text
+      .slice(start, end)
+      .trim();
 
     if (chunk) {
       chunks.push(chunk);
     }
 
-    start += chunkSize - overlap;
+    if (end >= text.length) {
+      break;
+    }
+
+    start += step;
   }
 
   return chunks;
 };
 
-// ================= CREATE EMBEDDING =================
+// =====================================================
+// CREATE EMBEDDINGS WITH LIMITED CONCURRENCY
+// =====================================================
 
-const createEmbedding = async (text) => {
-  if (!text || !text.trim()) {
-    throw new Error("Text is required for embedding");
+const createEmbeddingsWithConcurrency = async (
+  chunks,
+  ai,
+  concurrency = EMBEDDING_CONCURRENCY
+) => {
+  if (!Array.isArray(chunks)) {
+    throw new Error("Chunks must be an array");
   }
 
-  const response = await ai.models.embedContent({
-    model: "gemini-embedding-001",
-    contents: text,
-  });
-
-  const embedding = response.embeddings?.[0]?.values;
-
-  if (!embedding || embedding.length === 0) {
-    throw new Error("Gemini returned an empty embedding");
+  if (chunks.length === 0) {
+    return [];
   }
 
-  console.log(`Gemini embedding created: ${embedding.length} dimensions`);
+  const results = new Array(chunks.length);
 
-  return embedding;
+  let currentIndex = 0;
+
+  const worker = async () => {
+    while (true) {
+      const index = currentIndex++;
+
+      if (index >= chunks.length) {
+        return;
+      }
+
+      console.log(
+        `Creating embedding ${index + 1}/${chunks.length}`
+      );
+
+      results[index] = await createEmbedding(
+        chunks[index]
+      );
+
+      console.log(
+        `Embedding created ${index + 1}/${chunks.length}`
+      );
+    }
+  };
+
+  const workerCount = Math.min(
+    Math.max(1, concurrency),
+    chunks.length
+  );
+
+  await Promise.all(
+    Array.from(
+      { length: workerCount },
+      () => worker()
+    )
+  );
+
+  return results;
 };
 
-// ================= UPLOAD MATERIAL =================
+// =====================================================
+// UPLOAD MATERIAL
+// =====================================================
 
 const uploadMaterial = async (req, res) => {
-  let parser;
+  let parser = null;
+  let filePath = null;
+  let createdDocument = null;
+  let chromaWriteAttempted = false;
 
   try {
-    // ================= CHECK FILE =================
+    // =================================================
+    // FILE VALIDATION
+    // =================================================
 
     if (!req.file) {
       return res.status(400).json({
@@ -71,36 +179,120 @@ const uploadMaterial = async (req, res) => {
       });
     }
 
-    const userId = req.user?._id || req.user?.id || req.user?.userId;
+    const uploadedFile = req.file;
 
-    console.log("Authenticated user:", req.user);
-    console.log("Using userId:", userId);
+    const originalName = String(
+      uploadedFile.originalname || ""
+    ).trim();
 
-    if (!userId) {
-      return res.status(401).json({
+    if (!originalName) {
+      return res.status(400).json({
         success: false,
-        message: "User ID not found in authentication token",
+        message: "Original file name is required",
       });
     }
 
-    console.log("");
-    console.log("================================");
-    console.log("PDF PROCESSING STARTED");
-    console.log("================================");
+    const mimetype = String(
+      uploadedFile.mimetype || ""
+    ).toLowerCase();
 
-    console.log("User ID:", userId);
+    if (
+      mimetype !== "application/pdf" ||
+      !originalName.toLowerCase().endsWith(".pdf")
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Only PDF files are allowed",
+      });
+    }
 
-    console.log("Original name:", req.file.originalname);
+    // =================================================
+    // USER
+    // =================================================
 
-    console.log("File size:", req.file.size, "bytes");
+    const rawUserId =
+      req.user?.userId ??
+      req.user?._id;
 
-    // ================= READ PDF =================
+    if (!rawUserId) {
+      return res.status(401).json({
+        success: false,
+        message: "User authentication required",
+      });
+    }
 
-    const filePath = path.resolve(req.file.path);
+    const userId = String(rawUserId);
 
-    const pdfBuffer = fs.readFileSync(filePath);
+    if (
+      !mongoose.Types.ObjectId.isValid(userId)
+    ) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid authenticated user ID",
+      });
+    }
 
-    // ================= PARSE PDF =================
+    // =================================================
+    // FILE PATH
+    // =================================================
+
+    if (!uploadedFile.path) {
+      return res.status(400).json({
+        success: false,
+        message: "Uploaded file path is missing",
+      });
+    }
+
+    filePath = path.resolve(
+      uploadedFile.path
+    );
+
+    // =================================================
+    // FILE SIZE
+    // =================================================
+
+    const fileStats = await fs.stat(filePath);
+
+    if (fileStats.size > MAX_FILE_SIZE) {
+      return res.status(413).json({
+        success: false,
+        message: "PDF file exceeds the 10 MB limit",
+      });
+    }
+
+    if (fileStats.size === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Uploaded PDF is empty",
+      });
+    }
+
+    // =================================================
+    // READ PDF
+    // =================================================
+
+    const pdfBuffer = await fs.readFile(
+      filePath
+    );
+
+    // =================================================
+    // VERIFY PDF SIGNATURE
+    // =================================================
+
+    const pdfHeader = pdfBuffer
+      .subarray(0, 5)
+      .toString("ascii");
+
+    if (pdfHeader !== "%PDF-") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid PDF file",
+      });
+    }
+
+    // =================================================
+    // PARSE PDF
+    // =================================================
 
     parser = new PDFParse({
       data: pdfBuffer,
@@ -108,117 +300,340 @@ const uploadMaterial = async (req, res) => {
 
     const result = await parser.getText();
 
-    console.log("PDF pages:", result.total);
+    const pageCount =
+      Number(result?.total) || 0;
 
-    const extractedText = result.text?.trim();
+    const extractedText =
+      typeof result?.text === "string"
+        ? result.text.trim()
+        : "";
+
+    console.log(
+      "PDF pages:",
+      pageCount
+    );
+
+    console.log(
+      "Extracted characters:",
+      extractedText.length
+    );
 
     if (!extractedText) {
       return res.status(400).json({
         success: false,
-        message: "PDF contains no readable text",
+        message:
+          "PDF contains no readable text",
       });
     }
 
-    console.log("Extracted characters:", extractedText.length);
+    // =================================================
+    // CREATE CHUNKS
+    // =================================================
 
-    // ================= CREATE CHUNKS =================
-
-    const chunks = createChunks(extractedText, 1000, 200);
-
-    console.log("");
-    console.log(`Created ${chunks.length} chunks`);
-
-    // ================= CREATE DOCUMENT RECORD =================
-
-    const document = await Document.create({
-      userId: userId,
-      fileName: req.file.filename,
-      originalName: req.file.originalname,
-      pages: result.total,
-      totalChunks: chunks.length,
-    });
-
-    console.log("Document record created:", document._id);
-
-    // ================= DELETE OLD CHUNKS =================
-
-    await chromaService.deleteChunksByDocumentId(document._id);
-
-    console.log("Old chunks removed from Chroma");
-
-    // ================= CREATE EMBEDDINGS & SAVE TO CHROMA =================
-
-    const chunksWithEmbeddings = [];
-
-    for (let i = 0; i < chunks.length; i++) {
-      console.log(`Creating embedding ${i + 1}/${chunks.length}`);
-
-      const embedding = await createEmbedding(chunks[i]);
-
-      chunksWithEmbeddings.push({
-        text: chunks[i],
-        embedding: embedding,
-      });
-
-      console.log(`Embedding created ${i + 1}/${chunks.length}`);
-    }
-
-    // ================= ADD ALL CHUNKS TO CHROMA =================
-
-    await chromaService.addChunks(
-      chunksWithEmbeddings,
-      userId,
-      document._id,
-      req.file.originalname,
+    const chunks = createChunks(
+      extractedText,
+      CHUNK_SIZE,
+      CHUNK_OVERLAP
     );
 
-    console.log("");
+    if (chunks.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Could not create text chunks from PDF",
+      });
+    }
+
     console.log(
-      `Successfully saved ${chunksWithEmbeddings.length} chunks to Chroma`,
+      `Created ${chunks.length} chunks`
     );
 
-    // ================= SUCCESS =================
+    // =================================================
+    // GEMINI
+    // =================================================
 
-    return res.status(200).json({
+    const ai = getAIClient();
+
+    // =================================================
+    // CREATE EMBEDDINGS
+    // =================================================
+
+    const embeddings =
+      await createEmbeddingsWithConcurrency(
+        chunks,
+        ai,
+        EMBEDDING_CONCURRENCY
+      );
+
+    if (
+      embeddings.length !== chunks.length
+    ) {
+      throw new Error(
+        "Embedding count does not match chunk count"
+      );
+    }
+
+    // =================================================
+    // CREATE MONGODB DOCUMENT
+    // =================================================
+
+    createdDocument =
+      await Document.create({
+        userId,
+
+        fileName:
+          uploadedFile.filename,
+
+        originalName,
+
+        pages: pageCount,
+
+        totalChunks:
+          chunks.length,
+      });
+
+    const documentId =
+      String(createdDocument._id);
+
+    console.log(
+      "Document created:",
+      documentId
+    );
+
+    // =================================================
+    // PREPARE CHROMA DOCUMENTS
+    // =================================================
+
+    const chromaDocuments =
+      chunks.map((text, index) => ({
+        id: `${documentId}:${index}`,
+
+        embedding: embeddings[index],
+
+        document: text,
+
+        metadata: {
+          userId,
+          documentId,
+          fileName:
+            uploadedFile.filename,
+          originalName,
+          chunkIndex: index,
+        },
+      }));
+
+    // =================================================
+    // SAVE TO CHROMA IN BATCHES
+    // =================================================
+
+    chromaWriteAttempted = true;
+
+    for (
+      let start = 0;
+      start < chromaDocuments.length;
+      start += CHROMA_BATCH_SIZE
+    ) {
+      const batch = chromaDocuments.slice(
+        start,
+        start + CHROMA_BATCH_SIZE
+      );
+
+      await chromaService.addDocuments(
+        batch
+      );
+
+      console.log(
+        `Saved Chroma batch: ${
+          start + 1
+        }-${Math.min(
+          start + batch.length,
+          chromaDocuments.length
+        )}/${chromaDocuments.length}`
+      );
+    }
+
+    console.log(
+      `Saved ${chromaDocuments.length} chunks to Chroma`
+    );
+
+    // =================================================
+    // SUCCESS
+    // =================================================
+
+    return res.status(201).json({
       success: true,
 
-      message: "Material uploaded and processed successfully",
+      message:
+        "Material uploaded and processed successfully",
 
       material: {
-        documentId: document._id,
+        documentId,
 
-        originalName: req.file.originalname,
+        originalName,
 
-        filename: req.file.filename,
+        filename:
+          uploadedFile.filename,
 
-        size: req.file.size,
+        size: fileStats.size,
 
-        pages: result.total,
+        pages: pageCount,
 
-        chunkCount: chunksWithEmbeddings.length,
+        chunkCount:
+          chunks.length,
       },
     });
   } catch (error) {
-    console.error("Material processing error:", error);
+    console.error(
+      "Material processing error:",
+      {
+        message: error?.message,
+        status:
+          error?.status ??
+          error?.statusCode,
+      }
+    );
+
+    // =================================================
+    // ROLLBACK CHROMA
+    // =================================================
+
+    if (
+      chromaWriteAttempted &&
+      createdDocument?._id
+    ) {
+      try {
+        await chromaService.deleteDocumentChunks(
+          String(
+            createdDocument.userId
+          ),
+          String(
+            createdDocument._id
+          )
+        );
+
+        console.log(
+          "Rolled back Chroma document chunks"
+        );
+      } catch (rollbackError) {
+        console.error(
+          "Chroma rollback failed:",
+          rollbackError?.message
+        );
+      }
+    }
+
+    // =================================================
+    // ROLLBACK MONGODB
+    // =================================================
+
+    if (createdDocument?._id) {
+      try {
+        await Document.deleteOne({
+          _id: createdDocument._id,
+          userId:
+            createdDocument.userId,
+        });
+
+        console.log(
+          "Rolled back MongoDB document"
+        );
+      } catch (rollbackError) {
+        console.error(
+          "MongoDB rollback failed:",
+          rollbackError?.message
+        );
+      }
+    }
+
+    // =================================================
+    // RESPONSE
+    // =================================================
+
+    const status =
+      error?.status ??
+      error?.statusCode;
+
+    if (status === 429) {
+      return res.status(429).json({
+        success: false,
+        message:
+          "AI API rate limit reached. Please try again later.",
+      });
+    }
+
+    if (status === 503) {
+      return res.status(503).json({
+        success: false,
+        message:
+          "AI service is temporarily unavailable. Please try again later.",
+      });
+    }
+
+    if (status === 400) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid material or request",
+      });
+    }
 
     return res.status(500).json({
       success: false,
-      message: "Failed to process material",
-      error: error.message,
+      message:
+        "Failed to process material",
+
+      ...(process.env.NODE_ENV ===
+      "development"
+        ? {
+            error:
+              error?.message,
+          }
+        : {}),
     });
   } finally {
-    // ================= CLEANUP =================
+    // =================================================
+    // DESTROY PDF PARSER
+    // =================================================
 
     if (parser) {
       try {
         await parser.destroy();
       } catch (error) {
-        console.error("Parser cleanup error:", error);
+        console.error(
+          "Parser cleanup error:",
+          error?.message
+        );
+      }
+    }
+
+    // =================================================
+    // DELETE TEMPORARY UPLOAD
+    // =================================================
+
+    if (filePath) {
+      try {
+        await fs.unlink(filePath);
+
+        console.log(
+          "Temporary uploaded PDF removed"
+        );
+      } catch (error) {
+        if (error?.code !== "ENOENT") {
+          console.error(
+            "Uploaded file cleanup error:",
+            error?.message
+          );
+        }
       }
     }
   }
 };
 
+// =====================================================
+// EXPORT
+// =====================================================
+
 module.exports = {
   uploadMaterial,
+  createChunks,
 };

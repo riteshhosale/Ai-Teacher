@@ -1,34 +1,137 @@
 const API_URL =
-  import.meta.env.VITE_API_URL || "https://ai-teacher-qrj7.onrender.com/api";
+  import.meta.env.VITE_API_URL ||
+  "https://ai-teacher-qrj7.onrender.com/api";
+
+const REQUEST_TIMEOUT = 30000;
+
+const parseResponse = async (response) => {
+  const contentType =
+    response.headers.get("content-type") || "";
+
+  if (contentType.includes("application/json")) {
+    return response.json();
+  }
+
+  const text = await response.text();
+
+  return {
+    message:
+      text ||
+      `Request failed with status ${response.status}`,
+  };
+};
+
+const request = async (endpoint, options = {}) => {
+  const controller = new AbortController();
+
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, REQUEST_TIMEOUT);
+
+  try {
+    const response = await fetch(
+      `${API_URL}${endpoint}`,
+      {
+        ...options,
+        signal: controller.signal,
+      }
+    );
+
+    const data = await parseResponse(response);
+
+    if (response.status === 401) {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+
+      const error = new Error(
+        data?.message ||
+          "Your session has expired. Please login again."
+      );
+
+      error.status = 401;
+
+      throw error;
+    }
+
+    if (!response.ok) {
+      const error = new Error(
+        data?.message ||
+          `Request failed with status ${response.status}`
+      );
+
+      error.status = response.status;
+
+      throw error;
+    }
+
+    return data;
+  } catch (error) {
+    if (error.name === "AbortError") {
+      const timeoutError = new Error(
+        "The request timed out. Please try again."
+      );
+
+      timeoutError.code = "REQUEST_TIMEOUT";
+
+      throw timeoutError;
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
 
 // =====================================================
 // REGISTER
 // =====================================================
 
 export const registerUser = async (userData) => {
-  try {
-    const response = await fetch(`${API_URL}/auth/register`, {
-      method: "POST",
-
-      headers: {
-        "Content-Type": "application/json",
-      },
-
-      body: JSON.stringify(userData),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.message || "Failed to register user");
-    }
-
-    return data;
-  } catch (error) {
-    console.error("Register API error:", error);
-
-    throw error;
+  if (!userData || typeof userData !== "object") {
+    throw new Error("Registration data is required.");
   }
+
+  const name =
+    typeof userData.name === "string"
+      ? userData.name.trim()
+      : "";
+
+  const email =
+    typeof userData.email === "string"
+      ? userData.email.trim().toLowerCase()
+      : "";
+
+  const password =
+    typeof userData.password === "string"
+      ? userData.password
+      : "";
+
+  if (!name) {
+    throw new Error("Name is required.");
+  }
+
+  if (!email) {
+    throw new Error("Email is required.");
+  }
+
+  if (!password) {
+    throw new Error("Password is required.");
+  }
+
+  return request("/auth/register", {
+    method: "POST",
+
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+
+    body: JSON.stringify({
+      name,
+      email,
+      password,
+    }),
+  });
 };
 
 // =====================================================
@@ -36,39 +139,41 @@ export const registerUser = async (userData) => {
 // =====================================================
 
 export const loginUser = async (userData) => {
-  try {
-    console.log("Login API:", `${API_URL}/auth/login`);
-
-    console.log("Login data:", {
-      email: userData.email,
-    });
-
-    const response = await fetch(`${API_URL}/auth/login`, {
-      method: "POST",
-
-      headers: {
-        "Content-Type": "application/json",
-      },
-
-      body: JSON.stringify(userData),
-    });
-
-    console.log("Login status:", response.status);
-
-    const data = await response.json();
-
-    console.log("Login response:", data);
-
-    if (!response.ok) {
-      throw new Error(data.message || "Failed to login user");
-    }
-
-    return data;
-  } catch (error) {
-    console.error("Login API error:", error);
-
-    throw error;
+  if (!userData || typeof userData !== "object") {
+    throw new Error("Login data is required.");
   }
+
+  const email =
+    typeof userData.email === "string"
+      ? userData.email.trim().toLowerCase()
+      : "";
+
+  const password =
+    typeof userData.password === "string"
+      ? userData.password
+      : "";
+
+  if (!email) {
+    throw new Error("Email is required.");
+  }
+
+  if (!password) {
+    throw new Error("Password is required.");
+  }
+
+  return request("/auth/login", {
+    method: "POST",
+
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+
+    body: JSON.stringify({
+      email,
+      password,
+    }),
+  });
 };
 
 // =====================================================
@@ -76,31 +181,24 @@ export const loginUser = async (userData) => {
 // =====================================================
 
 export const getMe = async () => {
-  try {
-    const token = localStorage.getItem("token");
+  const token = localStorage.getItem("token");
 
-    if (!token) {
-      throw new Error("Authentication token not found");
-    }
+  if (!token) {
+    const error = new Error(
+      "Authentication token not found."
+    );
 
-    const response = await fetch(`${API_URL}/auth/me`, {
-      method: "GET",
-
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.message || "Failed to fetch user data");
-    }
-
-    return data;
-  } catch (error) {
-    console.error("GetMe API error:", error);
+    error.status = 401;
 
     throw error;
   }
+
+  return request("/auth/me", {
+    method: "GET",
+
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+  });
 };

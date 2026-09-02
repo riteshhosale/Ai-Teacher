@@ -12,45 +12,138 @@ import LearningPath from "./pages/LearningPath";
 import TeachingVideo from "./pages/TeachingVideo";
 import Profile from "./pages/Profile";
 
+const ProtectedRoute = ({ children }) => {
+  const token = localStorage.getItem("token");
+
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return children;
+};
+
+const PublicOnlyRoute = ({ children }) => {
+  const token = localStorage.getItem("token");
+
+  if (token) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return children;
+};
+
 function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* =========================
+            PUBLIC ROUTES
+        ========================== */}
+
         <Route path="/" element={<Home />} />
 
-        <Route path="/login" element={<Login />} />
-
-        <Route path="/register" element={<Register />} />
-
-        <Route path="/dashboard" element={<Dashboard />} />
-
-        <Route path="/learn" element={<Learn />} />
-
-        <Route path="/upload" element={<UploadMaterial />} />
-
-        <Route path="/profile" element={<Profile />} />
+        <Route
+          path="/login"
+          element={
+            <PublicOnlyRoute>
+              <Login />
+            </PublicOnlyRoute>
+          }
+        />
 
         <Route
-  path="/teaching-video/:id"
-  element={<TeachingVideo />}
-/>
+          path="/register"
+          element={
+            <PublicOnlyRoute>
+              <Register />
+            </PublicOnlyRoute>
+          }
+        />
+
+        {/* =========================
+            PROTECTED ROUTES
+        ========================== */}
 
         <Route
-  path="/learning-path"
-  element={<LearningPath />}
-/>
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
 
         <Route
-  path="/lesson/:id"
-  element={<Lesson />}
-/>
+          path="/learn"
+          element={
+            <ProtectedRoute>
+              <Learn />
+            </ProtectedRoute>
+          }
+        />
 
         <Route
-  path="/progress"
-  element={<Progress />}
-/>
+          path="/upload"
+          element={
+            <ProtectedRoute>
+              <UploadMaterial />
+            </ProtectedRoute>
+          }
+        />
 
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <Profile />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/teaching-video/:id"
+          element={
+            <ProtectedRoute>
+              <TeachingVideo />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/learning-path"
+          element={
+            <ProtectedRoute>
+              <LearningPath />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/lesson/:id"
+          element={
+            <ProtectedRoute>
+              <Lesson />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/progress"
+          element={
+            <ProtectedRoute>
+              <Progress />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* =========================
+            FALLBACK
+        ========================== */}
+
+        <Route
+          path="*"
+          element={<Navigate to="/" replace />}
+        />
       </Routes>
     </BrowserRouter>
   );

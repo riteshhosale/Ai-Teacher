@@ -1,4 +1,21 @@
+const mongoose = require("mongoose");
 const User = require("../models/User");
+
+// ==========================================
+// HELPERS
+// ==========================================
+
+const getUserId = (req) => {
+  return req.user?._id || req.user?.id || req.user?.userId;
+};
+
+const isValidObjectId = (id) => {
+  return mongoose.Types.ObjectId.isValid(id);
+};
+
+const isNonEmptyString = (value) => {
+  return typeof value === "string" && value.trim().length > 0;
+};
 
 // ==========================================
 // GET CURRENT USER LEARNING PROFILE
@@ -7,7 +24,7 @@ const User = require("../models/User");
 
 const getProfile = async (req, res) => {
   try {
-    const userId = req.user?._id || req.user?.id || req.user?.userId;
+    const userId = getUserId(req);
 
     if (!userId) {
       return res.status(401).json({
@@ -16,7 +33,16 @@ const getProfile = async (req, res) => {
       });
     }
 
-    const user = await User.findById(userId).select("-password");
+    if (!isValidObjectId(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID",
+      });
+    }
+
+    const user = await User.findById(userId)
+      .select("-password")
+      .lean();
 
     if (!user) {
       return res.status(404).json({
@@ -46,7 +72,7 @@ const getProfile = async (req, res) => {
 
 const updateProfile = async (req, res) => {
   try {
-    const userId = req.user?._id || req.user?.id || req.user?.userId;
+    const userId = getUserId(req);
 
     if (!userId) {
       return res.status(401).json({
@@ -55,6 +81,17 @@ const updateProfile = async (req, res) => {
       });
     }
 
+    if (!isValidObjectId(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID",
+      });
+    }
+
+    // Prevent crashes when req.body is missing
+    const body =
+      req.body && typeof req.body === "object" ? req.body : {};
+
     const {
       level,
       existingKnowledge,
@@ -62,11 +99,14 @@ const updateProfile = async (req, res) => {
       teachingStyle,
       language,
       availableTime,
-    } = req.body;
+    } = body;
 
     const updateData = {};
 
-    // Level
+    // ==========================================
+    // LEVEL
+    // ==========================================
+
     if (level !== undefined) {
       const allowedLevels = [
         "beginner",
@@ -74,7 +114,10 @@ const updateProfile = async (req, res) => {
         "advanced",
       ];
 
-      if (!allowedLevels.includes(level)) {
+      if (
+        typeof level !== "string" ||
+        !allowedLevels.includes(level.trim().toLowerCase())
+      ) {
         return res.status(400).json({
           success: false,
           message:
@@ -82,47 +125,146 @@ const updateProfile = async (req, res) => {
         });
       }
 
-      updateData.level = level;
+      updateData.level = level.trim().toLowerCase();
     }
 
-    // Existing knowledge
+    // ==========================================
+    // EXISTING KNOWLEDGE
+    // ==========================================
+
     if (existingKnowledge !== undefined) {
-      updateData.existingKnowledge =
-        String(existingKnowledge).trim();
-    }
+      if (typeof existingKnowledge !== "string") {
+        return res.status(400).json({
+          success: false,
+          message: "Existing knowledge must be a string",
+        });
+      }
 
-    // Learning goal
-    if (learningGoal !== undefined) {
-      updateData.learningGoal =
-        String(learningGoal).trim();
-    }
+      const value = existingKnowledge.trim();
 
-    // Teaching style
-    if (teachingStyle !== undefined) {
-      updateData.teachingStyle =
-        String(teachingStyle).trim();
-    }
-
-    // Language
-    if (language !== undefined) {
-      updateData.language =
-        String(language).trim();
-    }
-
-    // Available time
-    if (availableTime !== undefined) {
-      const time = Number(availableTime);
-
-      if (!Number.isFinite(time) || time < 5) {
+      if (value.length > 2000) {
         return res.status(400).json({
           success: false,
           message:
-            "Available time must be at least 5 minutes",
+            "Existing knowledge cannot exceed 2000 characters",
+        });
+      }
+
+      updateData.existingKnowledge = value;
+    }
+
+    // ==========================================
+    // LEARNING GOAL
+    // ==========================================
+
+    if (learningGoal !== undefined) {
+      if (typeof learningGoal !== "string") {
+        return res.status(400).json({
+          success: false,
+          message: "Learning goal must be a string",
+        });
+      }
+
+      const value = learningGoal.trim();
+
+      if (value.length > 1000) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Learning goal cannot exceed 1000 characters",
+        });
+      }
+
+      updateData.learningGoal = value;
+    }
+
+    // ==========================================
+    // TEACHING STYLE
+    // ==========================================
+
+    if (teachingStyle !== undefined) {
+      if (typeof teachingStyle !== "string") {
+        return res.status(400).json({
+          success: false,
+          message: "Teaching style must be a string",
+        });
+      }
+
+      const value = teachingStyle.trim();
+
+      if (value.length > 500) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Teaching style cannot exceed 500 characters",
+        });
+      }
+
+      updateData.teachingStyle = value;
+    }
+
+    // ==========================================
+    // LANGUAGE
+    // ==========================================
+
+    if (language !== undefined) {
+      if (typeof language !== "string") {
+        return res.status(400).json({
+          success: false,
+          message: "Language must be a string",
+        });
+      }
+
+      const value = language.trim();
+
+      if (value.length === 0 || value.length > 100) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Language must be between 1 and 100 characters",
+        });
+      }
+
+      updateData.language = value;
+    }
+
+    // ==========================================
+    // AVAILABLE TIME
+    // ==========================================
+
+    if (availableTime !== undefined) {
+      const time = Number(availableTime);
+
+      if (
+        !Number.isFinite(time) ||
+        !Number.isInteger(time) ||
+        time < 5 ||
+        time > 1440
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Available time must be a whole number between 5 and 1440 minutes",
         });
       }
 
       updateData.availableTime = time;
     }
+
+    // ==========================================
+    // NO VALID FIELDS
+    // ==========================================
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No valid profile fields provided",
+      });
+    }
+
+    // ==========================================
+    // UPDATE USER
+    // ==========================================
 
     const user = await User.findByIdAndUpdate(
       userId,
@@ -133,7 +275,9 @@ const updateProfile = async (req, res) => {
         new: true,
         runValidators: true,
       }
-    ).select("-password");
+    )
+      .select("-password")
+      .lean();
 
     if (!user) {
       return res.status(404).json({

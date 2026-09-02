@@ -1,46 +1,41 @@
 import { useEffect, useRef, useState } from "react";
 
-function AITeacher({ text, language = "English" }) {
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  "https://ai-teacher-qrj7.onrender.com/api";
+
+const MAX_TEXT_LENGTH = 10000;
+
+function AITeacher({
+  text,
+  language = "English",
+}) {
   const [speaking, setSpeaking] = useState(false);
-
   const [loading, setLoading] = useState(false);
-
   const [audioUrl, setAudioUrl] = useState("");
+  const [error, setError] = useState("");
 
   const audioRef = useRef(null);
-
-  // =====================================================
-  // API URL
-  // =====================================================
-
-  const API_URL =
-    import.meta.env.VITE_API_URL || "https://ai-teacher-qrj7.onrender.com/api";
-
-  // =====================================================
-  // LANGUAGE
-  // =====================================================
+  const abortControllerRef = useRef(null);
+  const audioUrlRef = useRef("");
 
   const getLanguageCode = () => {
-    const selectedLanguage = String(language).toLowerCase();
-
-    if (selectedLanguage.includes("hindi")) {
-      return "hi-IN";
-    }
+    const selectedLanguage = String(language)
+      .toLowerCase();
 
     if (selectedLanguage.includes("marathi")) {
       return "mr-IN";
     }
 
-    if (selectedLanguage.includes("hinglish")) {
+    if (
+      selectedLanguage.includes("hindi") ||
+      selectedLanguage.includes("hinglish")
+    ) {
       return "hi-IN";
     }
 
     return "en-US";
   };
-
-  // =====================================================
-  // STOP AUDIO
-  // =====================================================
 
   const stopAudio = () => {
     const currentAudio = audioRef.current;
@@ -48,176 +43,269 @@ function AITeacher({ text, language = "English" }) {
     if (currentAudio) {
       currentAudio.pause();
       currentAudio.currentTime = 0;
-      currentAudio.src = "";
+
+      currentAudio.onplay = null;
+      currentAudio.onended = null;
+      currentAudio.onerror = null;
+
+      currentAudio.removeAttribute("src");
+      currentAudio.load();
+
+      audioRef.current = null;
     }
 
-    if ("speechSynthesis" in window) {
+    if (
+      typeof window !== "undefined" &&
+      "speechSynthesis" in window
+    ) {
       window.speechSynthesis.cancel();
     }
 
     setSpeaking(false);
-    audioRef.current = null;
   };
 
-  // =====================================================
-  // PLAY GEMINI AUDIO
-  // =====================================================
-
-  const playGeminiAudio = async () => {
-    if (!audioUrl) {
-      return;
-    }
-
-    try {
-      stopAudio();
-
-      const newAudio = new Audio(audioUrl);
-
-      audioRef.current = newAudio;
-
-      newAudio.onplay = () => {
-        setSpeaking(true);
-      };
-
-      newAudio.onended = () => {
-        setSpeaking(false);
-      };
-
-      newAudio.onerror = () => {
-        console.error("Gemini audio playback failed");
-
-        setSpeaking(false);
-      };
-
-      await newAudio.play();
-    } catch (error) {
-      console.error("Audio playback error:", error);
-
-      setSpeaking(false);
-    }
-  };
-
-  // =====================================================
-  // GENERATE GEMINI VOICE
-  // =====================================================
-
-  const generateVoice = async () => {
-    try {
-      if (!text?.trim()) {
-        alert("There is no lesson text to speak.");
-
-        return;
-      }
-
-      setLoading(true);
-
-      stopAudio();
-
-      const token = localStorage.getItem("token");
-
-      if (!token) {
-        alert("Please login first.");
-
-        return;
-      }
-
-      console.log("Generating Gemini AI voice...");
-
-      const response = await fetch(`${API_URL}/speech/generate`, {
-        method: "POST",
-
-        headers: {
-          "Content-Type": "application/json",
-
-          Authorization: `Bearer ${token}`,
-        },
-
-        body: JSON.stringify({
-          text,
-          language,
-        }),
-      });
-
-      if (!response.ok) {
-        let message = "Speech generation failed";
-
-        try {
-          const data = await response.json();
-
-          message = data.message || message;
-        } catch {
-          // Response was not JSON
-        }
-
-        throw new Error(message);
-      }
-
-      const blob = await response.blob();
-
-      if (!blob.size) {
-        throw new Error("Gemini returned empty audio");
-      }
-
-      // Remove previous URL
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl);
-      }
-
-      const url = URL.createObjectURL(blob);
-
-      setAudioUrl(url);
-
-      console.log("Gemini voice generated successfully");
-
-      // Play immediately
-      const newAudio = new Audio(url);
-
-      audioRef.current = newAudio;
-
-      newAudio.onplay = () => {
-        setSpeaking(true);
-      };
-
-      newAudio.onended = () => {
-        setSpeaking(false);
-      };
-
-      newAudio.onerror = () => {
-        console.error("Gemini audio playback failed");
-
-        setSpeaking(false);
-      };
-
-      await newAudio.play();
-    } catch (error) {
-      console.error("Gemini voice generation error:", error);
-
-      alert(error.message || "Failed to generate AI voice");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // =====================================================
-  // BROWSER TTS FALLBACK
-  // =====================================================
-
-  const speakWithBrowser = () => {
-    if (!("speechSynthesis" in window)) {
-      alert("Text-to-speech is not supported in this browser.");
-
-      return;
-    }
-
-    if (!text?.trim()) {
+  const playAudio = async (url) => {
+    if (!url) {
       return;
     }
 
     stopAudio();
 
-    const speech = new SpeechSynthesisUtterance(text);
+    const newAudio = new Audio(url);
 
-    speech.lang = getLanguageCode();
+    audioRef.current = newAudio;
+
+    newAudio.onplay = () => {
+      if (audioRef.current === newAudio) {
+        setSpeaking(true);
+      }
+    };
+
+    newAudio.onended = () => {
+      if (audioRef.current === newAudio) {
+        setSpeaking(false);
+        audioRef.current = null;
+      }
+    };
+
+    newAudio.onerror = () => {
+      if (audioRef.current === newAudio) {
+        console.error(
+          "AI voice playback failed"
+        );
+
+        setSpeaking(false);
+        audioRef.current = null;
+        setError(
+          "Unable to play the generated voice."
+        );
+      }
+    };
+
+    try {
+      await newAudio.play();
+    } catch (playError) {
+      if (audioRef.current === newAudio) {
+        console.error(
+          "Audio playback error:",
+          playError
+        );
+
+        setSpeaking(false);
+        audioRef.current = null;
+
+        setError(
+          "Audio playback was blocked. Use the audio controls to play it."
+        );
+      }
+    }
+  };
+
+  const generateVoice = async () => {
+    if (loading) {
+      return;
+    }
+
+    const trimmedText =
+      typeof text === "string"
+        ? text.trim()
+        : "";
+
+    if (!trimmedText) {
+      setError(
+        "There is no lesson text to speak."
+      );
+      return;
+    }
+
+    if (trimmedText.length > MAX_TEXT_LENGTH) {
+      setError(
+        `Lesson text is too long for voice generation. Maximum ${MAX_TEXT_LENGTH} characters.`
+      );
+      return;
+    }
+
+    const token =
+      localStorage.getItem("token");
+
+    if (!token) {
+      setError("Please login first.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError("");
+
+      stopAudio();
+
+      abortControllerRef.current?.abort();
+
+      const controller =
+        new AbortController();
+
+      abortControllerRef.current =
+        controller;
+
+      const response = await fetch(
+        `${API_URL}/speech/generate`,
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+
+          body: JSON.stringify({
+            text: trimmedText,
+            language,
+          }),
+
+          signal: controller.signal,
+        }
+      );
+
+      if (!response.ok) {
+        let message =
+          "Speech generation failed.";
+
+        try {
+          const data =
+            await response.json();
+
+          if (
+            typeof data?.message ===
+              "string" &&
+            data.message.trim()
+          ) {
+            message = data.message;
+          }
+        } catch {
+          // Non-JSON response.
+        }
+
+        throw new Error(message);
+      }
+
+      const contentType =
+        response.headers.get(
+          "content-type"
+        ) || "";
+
+      if (
+        contentType &&
+        !contentType.toLowerCase().startsWith(
+          "audio/"
+        )
+      ) {
+        throw new Error(
+          "Server returned an invalid audio response."
+        );
+      }
+
+      const blob =
+        await response.blob();
+
+      if (!blob.size) {
+        throw new Error(
+          "AI returned empty audio."
+        );
+      }
+
+      const newUrl =
+        URL.createObjectURL(blob);
+
+      const previousUrl =
+        audioUrlRef.current;
+
+      if (previousUrl) {
+        URL.revokeObjectURL(
+          previousUrl
+        );
+      }
+
+      audioUrlRef.current = newUrl;
+
+      setAudioUrl(newUrl);
+
+      await playAudio(newUrl);
+    } catch (requestError) {
+      if (
+        requestError?.name ===
+        "AbortError"
+      ) {
+        return;
+      }
+
+      console.error(
+        "AI voice generation error:",
+        requestError
+      );
+
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Failed to generate AI voice."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const speakWithBrowser = () => {
+    if (
+      typeof window === "undefined" ||
+      !("speechSynthesis" in window)
+    ) {
+      setError(
+        "Text-to-speech is not supported in this browser."
+      );
+      return;
+    }
+
+    const trimmedText =
+      typeof text === "string"
+        ? text.trim()
+        : "";
+
+    if (!trimmedText) {
+      setError(
+        "There is no lesson text to speak."
+      );
+      return;
+    }
+
+    setError("");
+    stopAudio();
+
+    const speech =
+      new SpeechSynthesisUtterance(
+        trimmedText
+      );
+
+    speech.lang =
+      getLanguageCode();
 
     speech.rate = 0.9;
     speech.pitch = 1;
@@ -232,14 +320,16 @@ function AITeacher({ text, language = "English" }) {
 
     speech.onerror = () => {
       setSpeaking(false);
+
+      setError(
+        "Browser voice playback failed."
+      );
     };
 
-    window.speechSynthesis.speak(speech);
+    window.speechSynthesis.speak(
+      speech
+    );
   };
-
-  // =====================================================
-  // STOP / PLAY
-  // =====================================================
 
   const handleVoice = () => {
     if (speaking) {
@@ -247,178 +337,181 @@ function AITeacher({ text, language = "English" }) {
       return;
     }
 
-    // If Gemini audio already exists,
-    // play it without generating again.
     if (audioUrl) {
-      playGeminiAudio();
+      playAudio(audioUrl);
       return;
     }
 
     generateVoice();
   };
 
-  // =====================================================
-  // CLEANUP
-  // =====================================================
+  const clearAudio = () => {
+    stopAudio();
 
+    const currentUrl =
+      audioUrlRef.current;
+
+    if (currentUrl) {
+      URL.revokeObjectURL(
+        currentUrl
+      );
+    }
+
+    audioUrlRef.current = "";
+    setAudioUrl("");
+    setError("");
+  };
+
+  /*
+   * Clear generated voice whenever
+   * the lesson text changes.
+   */
+  useEffect(() => {
+    clearAudio();
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]);
+
+  /*
+   * Cleanup when component unmounts.
+   */
   useEffect(() => {
     return () => {
-      const currentAudio = audioRef.current;
+      abortControllerRef.current?.abort();
+
+      const currentAudio =
+        audioRef.current;
 
       if (currentAudio) {
         currentAudio.pause();
-        currentAudio.currentTime = 0;
-        currentAudio.src = "";
+        currentAudio.removeAttribute(
+          "src"
+        );
+        currentAudio.load();
+
+        audioRef.current = null;
       }
 
-      if ("speechSynthesis" in window) {
+      if (
+        typeof window !== "undefined" &&
+        "speechSynthesis" in window
+      ) {
         window.speechSynthesis.cancel();
       }
 
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl);
+      const currentUrl =
+        audioUrlRef.current;
+
+      if (currentUrl) {
+        URL.revokeObjectURL(
+          currentUrl
+        );
+
+        audioUrlRef.current = "";
       }
     };
-  }, [audioUrl]);
-
-  // =====================================================
-  // UI
-  // =====================================================
+  }, []);
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-slate-900">
-      {/* =================================================
-          TEACHER AREA
-      ================================================= */}
-
-      <div className="relative flex aspect-video items-center justify-center bg-gradient-to-br from-indigo-950 via-slate-900 to-purple-950">
-        {/* Background */}
-
-        <div className="absolute -left-20 -top-20 h-48 w-48 rounded-full bg-indigo-500/10 blur-3xl" />
-
-        <div className="absolute -bottom-20 -right-20 h-48 w-48 rounded-full bg-purple-500/10 blur-3xl" />
-
-        {/* =================================================
-            TEACHER
-        ================================================= */}
-
-        <div className="relative z-10 text-center">
-          <div
-            className={`mx-auto flex h-32 w-32 items-center justify-center rounded-full border-4 ${
-              speaking
-                ? "border-green-400 shadow-lg shadow-green-500/30"
-                : "border-white/10"
-            } bg-indigo-600/20 transition-all duration-300`}
-          >
-            <span className="text-6xl">👨‍🏫</span>
-          </div>
-
-          <h3 className="mt-4 text-lg font-bold">AI Teacher</h3>
-
-          <div className="mt-2 flex items-center justify-center gap-2">
-            <span
-              className={`h-2 w-2 rounded-full ${
-                speaking
-                  ? "animate-pulse bg-green-400"
-                  : loading
-                    ? "animate-pulse bg-yellow-400"
-                    : "bg-slate-500"
-              }`}
-            />
-
-            <span className="text-sm text-slate-400">
-              {loading
-                ? "Generating AI voice..."
-                : speaking
-                  ? "Speaking..."
-                  : "Ready to teach"}
-            </span>
-          </div>
-        </div>
-
-        {/* =================================================
-            CONTROLS
-        ================================================= */}
-
-        <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
-          <span className="rounded-lg bg-black/40 px-3 py-2 text-xs text-slate-300 backdrop-blur">
-            Gemini AI Teacher
+    <section className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-white">
+      {/* Teacher */}
+      <div className="flex min-h-[280px] flex-col items-center justify-center px-6 py-10 text-center sm:min-h-[320px]">
+        <div
+          className={`flex h-20 w-20 items-center justify-center rounded-full border ${
+            speaking
+              ? "border-slate-900"
+              : "border-slate-200"
+          } bg-slate-50 transition`}
+          aria-hidden="true"
+        >
+          <span className="text-3xl">
+            👨‍🏫
           </span>
-
-          <div className="flex gap-2">
-            {!speaking ? (
-              <button
-                type="button"
-                onClick={handleVoice}
-                disabled={loading}
-                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white backdrop-blur transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {loading
-                  ? "Generating..."
-                  : audioUrl
-                    ? "▶ Play AI Voice"
-                    : "🎙️ Generate AI Voice"}
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={stopAudio}
-                className="rounded-lg bg-red-500/20 px-4 py-2 text-sm font-semibold text-red-300 backdrop-blur transition hover:bg-red-500/30"
-              >
-                ⏹ Stop
-              </button>
-            )}
-          </div>
         </div>
+
+        <h2 className="mt-5 text-lg font-semibold text-slate-900">
+          AI Teacher
+        </h2>
+
+        <p className="mt-1 text-sm text-slate-500">
+          {loading
+            ? "Generating voice..."
+            : speaking
+              ? "Speaking"
+              : "Ready to teach"}
+        </p>
+
+        {/* Main control */}
+        <button
+          type="button"
+          onClick={handleVoice}
+          disabled={loading}
+          aria-label={
+            speaking
+              ? "Stop AI teacher"
+              : audioUrl
+                ? "Play AI teacher voice"
+                : "Generate AI teacher voice"
+          }
+          className="mt-6 rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {loading
+            ? "Generating..."
+            : speaking
+              ? "Stop"
+              : audioUrl
+                ? "Play voice"
+                : "Generate voice"}
+        </button>
+
+        {error && (
+          <p
+            role="alert"
+            className="mt-4 max-w-md text-sm text-red-600"
+          >
+            {error}
+          </p>
+        )}
       </div>
 
-      {/* =================================================
-          AUDIO PLAYER
-      ================================================= */}
-
+      {/* Generated audio */}
       {audioUrl && (
-        <div className="border-t border-white/10 bg-slate-950 p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-semibold text-slate-400">
-              Gemini AI Voice
+        <div className="border-t border-slate-100 px-5 py-4">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-sm font-medium text-slate-700">
+              Generated voice
             </p>
 
             <button
               type="button"
-              onClick={() => {
-                stopAudio();
-
-                if (audioUrl) {
-                  URL.revokeObjectURL(audioUrl);
-                }
-
-                setAudioUrl("");
-                audioRef.current = null;
-              }}
-              className="text-xs text-slate-500 hover:text-white"
+              onClick={clearAudio}
+              className="text-xs font-medium text-slate-400 transition hover:text-slate-900"
             >
               Clear
             </button>
           </div>
 
-          <audio className="w-full" controls src={audioUrl} />
+          <audio
+            className="w-full"
+            controls
+            src={audioUrl}
+            preload="metadata"
+          />
         </div>
       )}
 
-      {/* =================================================
-          OPTIONAL BROWSER FALLBACK
-      ================================================= */}
-
-      <div className="border-t border-white/10 px-4 py-3">
+      {/* Browser fallback */}
+      <div className="border-t border-slate-100 px-5 py-3">
         <button
           type="button"
           onClick={speakWithBrowser}
-          className="text-xs text-slate-500 transition hover:text-indigo-400"
+          disabled={loading}
+          className="text-xs font-medium text-slate-400 transition hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Use browser voice instead
         </button>
       </div>
-    </div>
+    </section>
   );
 }
 

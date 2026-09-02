@@ -4,6 +4,8 @@ const API_URL =
   import.meta.env.VITE_API_URL ||
   "https://ai-teacher-qrj7.onrender.com/api";
 
+const MAX_ANSWER_LENGTH = 5000;
+
 function AdaptiveQuestion({
   lessonId,
   question,
@@ -17,8 +19,29 @@ function AdaptiveQuestion({
   const [error, setError] = useState("");
 
   const submitAnswer = async () => {
-    if (!answer.trim()) {
+    if (loading) return;
+
+    const trimmedAnswer = answer.trim();
+
+    if (!trimmedAnswer) {
       setError("Please enter your answer.");
+      return;
+    }
+
+    if (trimmedAnswer.length > MAX_ANSWER_LENGTH) {
+      setError(
+        `Answer must be ${MAX_ANSWER_LENGTH} characters or fewer.`
+      );
+      return;
+    }
+
+    if (!lessonId) {
+      setError("Lesson information is missing.");
+      return;
+    }
+
+    if (!question?.trim()) {
+      setError("Question information is missing.");
       return;
     }
 
@@ -37,247 +60,274 @@ function AdaptiveQuestion({
         `${API_URL}/adaptive/evaluate`,
         {
           method: "POST",
-
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-
           body: JSON.stringify({
             lessonId,
             question,
-            studentAnswer: answer,
+            studentAnswer: trimmedAnswer,
             expectedAnswer,
             context,
           }),
         }
       );
 
-      const data = await response.json();
+      let data = null;
+
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error(
+          `Server returned an invalid response (${response.status}).`
+        );
+      }
 
       if (!response.ok) {
         throw new Error(
-          data.message || "Failed to evaluate answer"
+          data?.message ||
+            `Failed to evaluate answer (${response.status}).`
+        );
+      }
+
+      if (
+        !data?.evaluation ||
+        typeof data.evaluation !== "object"
+      ) {
+        throw new Error(
+          "The evaluation response was invalid."
         );
       }
 
       setEvaluation(data.evaluation);
-
     } catch (err) {
-      console.error("Adaptive evaluation error:", err);
+      console.error(
+        "Adaptive evaluation error:",
+        err
+      );
+
+      setEvaluation(null);
 
       setError(
-        err.message ||
-          "Unable to evaluate your answer."
+        err instanceof Error
+          ? err.message
+          : "Unable to evaluate your answer."
       );
     } finally {
       setLoading(false);
     }
   };
 
-
   const continueLearning = () => {
-    if (evaluation?.nextQuestion && onNext) {
+    if (!evaluation) return;
+
+    if (
+      evaluation.nextQuestion &&
+      typeof onNext === "function"
+    ) {
       onNext(evaluation.nextQuestion);
     }
 
     setAnswer("");
     setEvaluation(null);
+    setError("");
   };
 
+  const score =
+    typeof evaluation?.score === "number"
+      ? Math.max(0, Math.min(100, evaluation.score))
+      : null;
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-
-      {/* Question */}
-
+    <section className="w-full rounded-2xl border border-slate-200 bg-white p-5 sm:p-6">
+      {/* Header */}
       <div className="mb-6">
-        <p className="mb-2 text-sm font-medium text-slate-500">
-          Knowledge Check
+        <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-slate-400">
+          Knowledge check
         </p>
 
-        <h2 className="text-xl font-semibold text-slate-900">
+        <h2 className="text-lg font-semibold leading-7 text-slate-900 sm:text-xl">
           {question}
         </h2>
       </div>
 
-
-      {/* Answer */}
-
       {!evaluation && (
-        <>
+        <div>
+          <label
+            htmlFor="adaptive-answer"
+            className="mb-2 block text-sm font-medium text-slate-700"
+          >
+            Your answer
+          </label>
+
           <textarea
+            id="adaptive-answer"
             value={answer}
-            onChange={(e) => setAnswer(e.target.value)}
-            placeholder="Explain your answer..."
-            rows={5}
-            className="w-full resize-none rounded-xl border border-slate-300 p-4 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            onChange={(event) => {
+              setAnswer(event.target.value);
+
+              if (error) {
+                setError("");
+              }
+            }}
+            placeholder="Explain your answer in your own words..."
+            rows={6}
+            maxLength={MAX_ANSWER_LENGTH}
+            disabled={loading}
+            className="w-full resize-y rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400 focus:ring-2 focus:ring-slate-100 disabled:cursor-not-allowed disabled:bg-slate-50"
           />
 
-          {error && (
-            <p className="mt-2 text-sm text-red-600">
-              {error}
-            </p>
-          )}
+          <div className="mt-2 flex items-center justify-between">
+            <span className="text-xs text-slate-400">
+              {answer.length}/{MAX_ANSWER_LENGTH}
+            </span>
+
+            {error && (
+              <p
+                role="alert"
+                className="text-sm text-red-600"
+              >
+                {error}
+              </p>
+            )}
+          </div>
 
           <button
+            type="button"
             onClick={submitAnswer}
-            disabled={loading}
-            className="mt-4 rounded-xl bg-slate-900 px-6 py-3 font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={loading || !answer.trim()}
+            className="mt-4 w-full rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
           >
             {loading
-              ? "AI Teacher is evaluating..."
-              : "Submit Answer"}
+              ? "Evaluating..."
+              : "Submit answer"}
           </button>
-        </>
+        </div>
       )}
 
-
-      {/* Evaluation */}
-
       {evaluation && (
-        <div className="mt-6 space-y-4">
-
+        <div className="space-y-6">
           {/* Score */}
+          <div className="flex items-end justify-between border-b border-slate-100 pb-5">
+            <div>
+              <p className="text-sm text-slate-500">
+                Evaluation
+              </p>
 
-          <div className="rounded-xl bg-slate-50 p-4">
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-slate-700">
-                Score
-              </span>
-
-              <span className="text-2xl font-bold text-slate-900">
-                {evaluation.score}/100
-              </span>
+              <p
+                className={`mt-1 text-base font-semibold ${
+                  evaluation.correct
+                    ? "text-emerald-700"
+                    : "text-slate-900"
+                }`}
+              >
+                {evaluation.correct
+                  ? "Correct"
+                  : "Keep learning"}
+              </p>
             </div>
+
+            {score !== null && (
+              <p className="text-3xl font-semibold tracking-tight text-slate-900">
+                {score}
+                <span className="ml-1 text-sm font-normal text-slate-400">
+                  /100
+                </span>
+              </p>
+            )}
           </div>
-
-
-          {/* Correct */}
-
-          <div
-            className={`rounded-xl p-4 ${
-              evaluation.correct
-                ? "bg-green-50"
-                : "bg-red-50"
-            }`}
-          >
-            <p
-              className={`font-semibold ${
-                evaluation.correct
-                  ? "text-green-700"
-                  : "text-red-700"
-              }`}
-            >
-              {evaluation.correct
-                ? "✓ Correct"
-                : "✗ Let's improve this"}
-            </p>
-          </div>
-
 
           {/* Understanding */}
-
           {evaluation.understood && (
-            <div className="rounded-xl border border-slate-200 p-4">
-              <h3 className="font-semibold text-slate-900">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">
                 What you understood
               </h3>
 
-              <p className="mt-2 text-slate-600">
+              <p className="mt-2 text-sm leading-7 text-slate-600">
                 {evaluation.understood}
               </p>
             </div>
           )}
 
-
           {/* Misconception */}
-
           {evaluation.misconception && (
-            <div className="rounded-xl border border-orange-200 bg-orange-50 p-4">
-              <h3 className="font-semibold text-orange-800">
-                Misconception detected
+            <div className="border-l-2 border-slate-300 pl-4">
+              <h3 className="text-sm font-semibold text-slate-900">
+                Misconception
               </h3>
 
-              <p className="mt-2 text-orange-700">
+              <p className="mt-2 text-sm leading-7 text-slate-600">
                 {evaluation.misconception}
               </p>
             </div>
           )}
 
-
           {/* Explanation */}
-
           {evaluation.explanation && (
-            <div className="rounded-xl bg-blue-50 p-4">
-              <h3 className="font-semibold text-blue-900">
-                AI Teacher Explanation
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">
+                Explanation
               </h3>
 
-              <p className="mt-2 leading-7 text-blue-800">
+              <p className="mt-2 text-sm leading-7 text-slate-600">
                 {evaluation.explanation}
               </p>
             </div>
           )}
 
-
-          {/* Adaptive re-explanation */}
-
+          {/* Re-explanation */}
           {!evaluation.correct &&
             evaluation.reExplanation && (
-              <div className="rounded-xl bg-purple-50 p-4">
-                <h3 className="font-semibold text-purple-900">
-                  Let's explain it differently
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">
+                  A different way to see it
                 </h3>
 
-                <p className="mt-2 leading-7 text-purple-800">
+                <p className="mt-2 text-sm leading-7 text-slate-600">
                   {evaluation.reExplanation}
                 </p>
               </div>
             )}
 
-
           {/* Analogy */}
-
           {!evaluation.correct &&
             evaluation.analogy && (
-              <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4">
-                <h3 className="font-semibold text-indigo-900">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">
                   Think of it this way
                 </h3>
 
-                <p className="mt-2 leading-7 text-indigo-800">
+                <p className="mt-2 text-sm leading-7 text-slate-600">
                   {evaluation.analogy}
                 </p>
               </div>
             )}
 
-
           {/* Next question */}
-
           {evaluation.nextQuestion && (
-            <div className="rounded-xl border border-slate-200 p-4">
-              <h3 className="font-semibold text-slate-900">
-                Next Question
-              </h3>
+            <div className="rounded-xl bg-slate-50 p-4">
+              <p className="text-xs font-medium uppercase tracking-[0.12em] text-slate-400">
+                Next
+              </p>
 
-              <p className="mt-2 text-slate-600">
+              <p className="mt-2 text-sm leading-6 text-slate-700">
                 {evaluation.nextQuestion}
               </p>
             </div>
           )}
 
-
           <button
+            type="button"
             onClick={continueLearning}
-            className="w-full rounded-xl bg-slate-900 px-6 py-3 font-medium text-white hover:bg-slate-800"
+            className="w-full rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-slate-800"
           >
-            Continue Learning →
+            Continue learning
           </button>
-
         </div>
       )}
-    </div>
+    </section>
   );
 }
 

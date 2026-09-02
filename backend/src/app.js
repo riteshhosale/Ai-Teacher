@@ -2,6 +2,7 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
+
 const chromaService = require("./services/chromaService");
 
 // =========================
@@ -9,29 +10,17 @@ const chromaService = require("./services/chromaService");
 // =========================
 
 const authRoutes = require("./routes/authRoutes");
-
 const materialRoutes = require("./routes/materialRoutes");
-
 const lessonRoutes = require("./routes/lessonRoutes");
-
 const adaptiveRoutes = require("./routes/adaptiveRoutes");
-
 const progressRoutes = require("./routes/progressRoutes");
-
 const lessonHistoryRoutes = require("./routes/lessonHistoryRoutes");
-
 const recommendationRoutes = require("./routes/recommendationRoutes");
-
 const documentRoutes = require("./routes/documentRoutes");
-
 const ragRoutes = require("./routes/ragRoutes");
-
 const speechRoutes = require("./routes/speechRoutes");
-
 const realtimeRoutes = require("./routes/realtimeRoutes");
-
 const videoRoutes = require("./routes/videoRoutes");
-
 const assessmentRoutes = require("./routes/assessmentRoutes");
 
 // =========================
@@ -39,6 +28,12 @@ const assessmentRoutes = require("./routes/assessmentRoutes");
 // =========================
 
 const app = express();
+
+// =========================
+// CHROMA READINESS
+// =========================
+
+let chromaReady = false;
 
 // =========================
 // CORS
@@ -59,14 +54,15 @@ const isAllowedOrigin = (origin) => {
     return true;
   }
 
-  return /^https:\/\/.*\.vercel\.app$/.test(origin);
+  // Allow Vercel preview deployments
+  return /^https:\/\/[a-zA-Z0-9-]+\.vercel\.app$/.test(origin);
 };
 
 app.use(
   cors({
-    origin: function (origin, callback) {
+    origin: (origin, callback) => {
       // Allow requests without Origin
-      // such as Postman/server-to-server
+      // such as Postman/server-to-server requests.
       if (!origin) {
         return callback(null, true);
       }
@@ -77,15 +73,25 @@ app.use(
 
       console.error("CORS blocked origin:", origin);
 
-      return callback(new Error(`CORS blocked origin: ${origin}`));
+      return callback(new Error("CORS origin not allowed"));
     },
 
     credentials: true,
 
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    methods: [
+      "GET",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "OPTIONS",
+    ],
 
-    allowedHeaders: ["Content-Type", "Authorization"],
-  }),
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+    ],
+  })
 );
 
 // =========================
@@ -94,25 +100,44 @@ app.use(
 
 app.use(
   express.json({
-    limit: "10mb",
-  }),
+    limit: "1mb",
+  })
 );
 
 app.use(
   express.urlencoded({
     extended: true,
-    limit: "10mb",
-  }),
+    limit: "1mb",
+  })
 );
 
 // =========================
 // INITIALIZE CHROMA
 // =========================
 
-chromaService.initializeCollection().catch((error) => {
-  console.error("Failed to initialize Chroma:", error);
-  // Continue running even if Chroma init fails
-});
+const initializeChroma = async () => {
+  try {
+    await chromaService.initializeCollection();
+
+    chromaReady = true;
+
+    console.log("Chroma Cloud initialized successfully");
+  } catch (error) {
+    chromaReady = false;
+
+    console.error(
+      "Failed to initialize Chroma:",
+      error.message
+    );
+
+    // Do not crash the entire API.
+    // Non-RAG APIs can continue working.
+  }
+};
+
+// Start initialization without blocking
+// Express route registration.
+initializeChroma();
 
 // =========================
 // HEALTH CHECK
@@ -126,9 +151,15 @@ app.get("/", (req, res) => {
 });
 
 app.get("/api/health", (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "API health is good",
+  const healthy = chromaReady;
+
+  res.status(healthy ? 200 : 503).json({
+    success: healthy,
+    status: healthy ? "healthy" : "degraded",
+    services: {
+      api: "up",
+      chroma: chromaReady ? "up" : "unavailable",
+    },
     timestamp: new Date().toISOString(),
   });
 });
@@ -168,12 +199,15 @@ app.use("/api/assessment", assessmentRoutes);
 // =========================
 
 app.use((req, res) => {
-  console.log("404 Route:", req.method, req.originalUrl);
+  console.warn(
+    "404 Route:",
+    req.method,
+    req.originalUrl
+  );
 
   res.status(404).json({
     success: false,
     message: "API route not found",
-    path: req.originalUrl,
   });
 });
 
@@ -183,24 +217,37 @@ app.use((req, res) => {
 
 app.use((err, req, res, next) => {
   console.error("================================");
-
   console.error("SERVER ERROR:");
-
-  console.error(err.message);
-
+  console.error(err);
   console.error("================================");
 
   // CORS error
-  if (err.message?.startsWith("CORS blocked origin")) {
+  if (err.message === "CORS origin not allowed") {
     return res.status(403).json({
       success: false,
-      message: err.message,
+      message: "CORS origin not allowed",
+    });
+  }
+
+  // JSON body too large
+  if (err.type === "entity.too.large") {
+    return res.status(413).json({
+      success: false,
+      message: "Request body is too large",
+    });
+  }
+
+  // Invalid JSON
+  if (err instanceof SyntaxError && err.status === 400) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid JSON payload",
     });
   }
 
   return res.status(500).json({
     success: false,
-    message: err.message || "Internal server error",
+    message: "Internal server error",
   });
 });
 

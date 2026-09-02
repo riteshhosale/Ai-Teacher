@@ -1,3 +1,5 @@
+const mongoose = require("mongoose");
+
 const Lesson = require("../models/Lesson");
 const TeachingVideo = require("../models/TeachingVideo");
 
@@ -10,13 +12,56 @@ const {
   generateLessonScenePlan,
 } = require("../services/lessonSceneService");
 
+
+// ==========================================
+// HELPERS
+// ==========================================
+
+const getUserId = (req) => {
+  return req.user?._id || req.user?.userId || req.user?.id;
+};
+
+const isValidObjectId = (id) => {
+  return mongoose.Types.ObjectId.isValid(id);
+};
+
+const getErrorStatus = (error) => {
+  return (
+    error?.status ||
+    error?.statusCode ||
+    error?.response?.status ||
+    null
+  );
+};
+
+const getErrorMessage = (error) => {
+  return (
+    error?.response?.data?.message ||
+    error?.message ||
+    "Unknown error"
+  );
+};
+
+const ALLOWED_VIDEO_STATUSES = [
+  "processing",
+  "completed",
+  "failed",
+];
+
+
 // ==========================================
 // GENERATE VIDEO + SCENE PLAN
 // ==========================================
 
 const generateVideo = async (req, res) => {
+  let existingVideo = null;
+
   try {
     const { lessonId } = req.body;
+
+    // ==========================================
+    // VALIDATE LESSON ID
+    // ==========================================
 
     if (!lessonId) {
       return res.status(400).json({
@@ -25,14 +70,18 @@ const generateVideo = async (req, res) => {
       });
     }
 
+    if (!isValidObjectId(lessonId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid lessonId",
+      });
+    }
+
     // ==========================================
-    // FIND LESSON
+    // AUTHENTICATION
     // ==========================================
 
-    const userId =
-      req.user?._id ||
-      req.user?.userId ||
-      req.user?.id;
+    const userId = getUserId(req);
 
     if (!userId) {
       return res.status(401).json({
@@ -40,6 +89,10 @@ const generateVideo = async (req, res) => {
         message: "User authentication required",
       });
     }
+
+    // ==========================================
+    // FIND LESSON
+    // ==========================================
 
     const lesson = await Lesson.findOne({
       _id: lessonId,
@@ -54,41 +107,88 @@ const generateVideo = async (req, res) => {
     }
 
     // ==========================================
-    // GENERATE EDUCATIONAL SCENE PLAN WITH GEMINI
+    // CHECK EXISTING VIDEO FIRST
+    // ==========================================
+
+    existingVideo = await TeachingVideo.findOne({
+      lessonId: lesson._id,
+      userId,
+    });
+
+    // ==========================================
+    // ALREADY PROCESSING
+    // ==========================================
+
+    if (
+      existingVideo &&
+      existingVideo.status === "processing"
+    ) {
+      return res.status(200).json({
+        success: true,
+        message: "Teaching video is already being generated",
+        video: existingVideo,
+      });
+    }
+
+    // ==========================================
+    // ALREADY COMPLETED
+    // ==========================================
+
+    if (
+      existingVideo &&
+      existingVideo.status === "completed" &&
+      existingVideo.videoUrl
+    ) {
+      return res.status(200).json({
+        success: true,
+        message: "Teaching video already exists",
+        video: existingVideo,
+      });
+    }
+
+    // ==========================================
+    // GENERATE EDUCATIONAL SCENE PLAN
     // ==========================================
 
     console.log(
-      "Generating teaching scene plan with Gemini..."
+      `Generating teaching scene plan for lesson ${lesson._id}...`
     );
 
-    const videoPlan =
-      await generateLessonScenePlan({
-        topic:
-          lesson.title ||
-          lesson.topic ||
-          "AI Teacher Lesson",
+    const videoPlan = await generateLessonScenePlan({
+      topic:
+        lesson.title ||
+        lesson.topic ||
+        "AI Teacher Lesson",
 
-        level:
-          lesson.level || "beginner",
+      level:
+        lesson.level ||
+        "beginner",
 
-        language:
-          lesson.language || "English",
+      language:
+        lesson.language ||
+        "English",
 
-        introduction:
-          lesson.introduction || "",
+      introduction:
+        lesson.introduction ||
+        "",
 
-        explanation:
-          lesson.explanation || "",
+      explanation:
+        lesson.explanation ||
+        "",
 
-        examples:
-          lesson.examples || [],
+      examples:
+        Array.isArray(lesson.examples)
+          ? lesson.examples
+          : [],
 
-        demonstration:
-          lesson.demonstration || "",
+      demonstration:
+        lesson.demonstration ||
+        "",
 
-        summary:
-          lesson.summary || "",
-      });
+      summary:
+        lesson.summary ||
+        "",
+    });
 
     // ==========================================
     // VALIDATE SCENE PLAN
@@ -101,112 +201,23 @@ const generateVideo = async (req, res) => {
     ) {
       return res.status(500).json({
         success: false,
-        message:
-          "No teaching scenes were generated",
+        message: "No teaching scenes were generated",
       });
     }
 
     // ==========================================
-    // CHECK EXISTING VIDEO
+    // VALIDATE SCENES
     // ==========================================
 
-    let existingVideo =
-      await TeachingVideo.findOne({
-        lessonId: lesson._id,
-        userId,
-      });
+    const validScenes = videoPlan.scenes.filter(
+      (scene) =>
+        scene &&
+        typeof scene === "object" &&
+        typeof scene.script === "string" &&
+        scene.script.trim().length > 0
+    );
 
-    // ==========================================
-    // IF ALREADY PROCESSING
-    // ==========================================
-
-    if (
-      existingVideo &&
-      existingVideo.status === "processing" &&
-      existingVideo.providerVideoId
-    ) {
-      return res.status(200).json({
-        success: true,
-        message:
-          "Teaching video is already being generated",
-
-        videoPlan: {
-          title:
-            existingVideo.title ||
-            videoPlan.title ||
-            lesson.topic ||
-            "AI Teacher Lesson",
-
-          description:
-            videoPlan.description ||
-            "Learn this topic through AI-generated educational scenes.",
-
-          language:
-            videoPlan.language ||
-            lesson.language ||
-            "English",
-
-          scenes:
-            existingVideo.scenes ||
-            videoPlan.scenes,
-        },
-
-        video: existingVideo,
-      });
-    }
-
-    // ==========================================
-    // IF ALREADY COMPLETED
-    // ==========================================
-
-    if (
-      existingVideo &&
-      existingVideo.status === "completed" &&
-      existingVideo.videoUrl
-    ) {
-      return res.status(200).json({
-        success: true,
-        message:
-          "Teaching video already exists",
-
-        videoPlan: {
-          title:
-            existingVideo.title ||
-            videoPlan.title ||
-            lesson.topic ||
-            "AI Teacher Lesson",
-
-          description:
-            videoPlan.description ||
-            "Learn this topic through AI-generated educational scenes.",
-
-          language:
-            videoPlan.language ||
-            lesson.language ||
-            "English",
-
-          scenes:
-            existingVideo.scenes ||
-            videoPlan.scenes,
-        },
-
-        video: existingVideo,
-      });
-    }
-
-    // ==========================================
-    // COMBINE ALL SCENE SCRIPTS
-    // ==========================================
-
-    const script = videoPlan.scenes
-      .map((scene) => scene.script || "")
-      .filter(
-        (sceneScript) =>
-          sceneScript.trim().length > 0
-      )
-      .join("\n\n");
-
-    if (!script.trim()) {
+    if (validScenes.length === 0) {
       return res.status(500).json({
         success: false,
         message:
@@ -215,14 +226,28 @@ const generateVideo = async (req, res) => {
     }
 
     // ==========================================
-    // CREATE DATABASE VIDEO RECORD
+    // COMBINE SCENE SCRIPTS
+    // ==========================================
+
+    const script = validScenes
+      .map((scene) => scene.script.trim())
+      .join("\n\n");
+
+    if (!script) {
+      return res.status(500).json({
+        success: false,
+        message: "Teaching script is empty",
+      });
+    }
+
+    // ==========================================
+    // CREATE / RESET DATABASE RECORD
     // ==========================================
 
     if (!existingVideo) {
-      existingVideo =
-        await TeachingVideo.create({
+      try {
+        existingVideo = await TeachingVideo.create({
           userId,
-
           lessonId: lesson._id,
 
           title:
@@ -237,7 +262,7 @@ const generateVideo = async (req, res) => {
 
           status: "processing",
 
-          scenes: videoPlan.scenes,
+          scenes: validScenes,
 
           videoUrl: null,
 
@@ -245,20 +270,52 @@ const generateVideo = async (req, res) => {
 
           error: null,
         });
+      } catch (error) {
+        // Mongo duplicate-key protection for concurrent requests
+        if (error?.code === 11000) {
+          existingVideo =
+            await TeachingVideo.findOne({
+              lessonId: lesson._id,
+              userId,
+            });
+
+          if (
+            existingVideo &&
+            existingVideo.status === "processing"
+          ) {
+            return res.status(200).json({
+              success: true,
+              message:
+                "Teaching video is already being generated",
+              video: existingVideo,
+            });
+          }
+
+          throw error;
+        }
+
+        throw error;
+      }
     } else {
+      // Reset failed video for retry
+
       existingVideo.title =
         videoPlan.title ||
         lesson.title ||
         lesson.topic ||
         "AI Teacher Lesson";
 
-      existingVideo.scenes =
-        videoPlan.scenes;
+      existingVideo.scenes = validScenes;
 
-      existingVideo.status =
-        "processing";
+      existingVideo.status = "processing";
+
+      existingVideo.provider = "";
+
+      existingVideo.providerVideoId = "";
 
       existingVideo.videoUrl = null;
+
+      existingVideo.duration = null;
 
       existingVideo.error = null;
 
@@ -266,15 +323,17 @@ const generateVideo = async (req, res) => {
     }
 
     // ==========================================
-    // GENERATE SYNTHESIA AVATAR VIDEO
+    // GENERATE AVATAR VIDEO
     // ==========================================
 
     console.log(
-      "Sending teaching script to Synthesia..."
+      `Sending teaching script to avatar provider for lesson ${lesson._id}...`
     );
 
-    const avatarVideo =
-      await generateAvatarVideo({
+    let avatarVideo;
+
+    try {
+      avatarVideo = await generateAvatarVideo({
         title:
           videoPlan.title ||
           lesson.title ||
@@ -283,26 +342,94 @@ const generateVideo = async (req, res) => {
 
         script,
       });
+    } catch (avatarError) {
+      console.error(
+        "Avatar generation error:",
+        getErrorMessage(avatarError)
+      );
+
+      // IMPORTANT:
+      // Don't leave the DB record permanently stuck
+      existingVideo.status = "failed";
+      existingVideo.error = getErrorMessage(avatarError);
+      await existingVideo.save();
+
+      const status = getErrorStatus(avatarError);
+
+      if (status === 429) {
+        return res.status(429).json({
+          success: false,
+          message:
+            "Video generation quota exceeded. Please try again later.",
+        });
+      }
+
+      if (status === 503) {
+        return res.status(503).json({
+          success: false,
+          message:
+            "Video generation service is temporarily unavailable.",
+        });
+      }
+
+      return res.status(502).json({
+        success: false,
+        message:
+          "Avatar video generation failed. Please try again.",
+        video: existingVideo,
+      });
+    }
 
     // ==========================================
-    // SAVE SYNTHESIA RESULT
+    // VALIDATE AVATAR RESULT
+    // ==========================================
+
+    if (
+      !avatarVideo ||
+      !avatarVideo.providerVideoId
+    ) {
+      existingVideo.status = "failed";
+      existingVideo.error =
+        "Avatar provider did not return a video ID.";
+
+      await existingVideo.save();
+
+      return res.status(502).json({
+        success: false,
+        message:
+          "Video provider did not return a valid video ID.",
+        video: existingVideo,
+      });
+    }
+
+    // ==========================================
+    // SAVE PROVIDER RESULT
     // ==========================================
 
     existingVideo.provider =
-      avatarVideo?.provider ||
+      avatarVideo.provider ||
       "synthesia";
 
     existingVideo.providerVideoId =
-      avatarVideo?.providerVideoId ||
-      "";
+      avatarVideo.providerVideoId;
+
+    const providerStatus =
+      avatarVideo.status || "processing";
 
     existingVideo.status =
-      avatarVideo?.status ||
-      "processing";
+      ALLOWED_VIDEO_STATUSES.includes(providerStatus)
+        ? providerStatus
+        : "processing";
 
     existingVideo.videoUrl =
-      avatarVideo?.videoUrl ||
-      null;
+      avatarVideo.videoUrl || null;
+
+    if (avatarVideo.duration != null) {
+      existingVideo.duration =
+        avatarVideo.duration;
+    }
+
+    existingVideo.error = null;
 
     await existingVideo.save();
 
@@ -326,15 +453,14 @@ const generateVideo = async (req, res) => {
         lesson.language ||
         "English",
 
-      scenes:
-        videoPlan.scenes,
+      scenes: validScenes,
     };
 
     // ==========================================
     // RESPONSE
     // ==========================================
 
-    return res.status(201).json({
+    return res.status(202).json({
       success: true,
 
       message:
@@ -344,40 +470,36 @@ const generateVideo = async (req, res) => {
 
       video: existingVideo,
     });
+
   } catch (error) {
     console.error(
       "Generate video error:",
-      error.response?.data ||
-        error.message
+      getErrorMessage(error)
     );
 
+    const status = getErrorStatus(error);
+
     // ==========================================
-    // GEMINI 429
+    // GEMINI RATE LIMIT
     // ==========================================
 
-    if (
-      error?.status === 429 ||
-      error?.response?.status === 429
-    ) {
+    if (status === 429) {
       return res.status(429).json({
         success: false,
         message:
-          "Gemini API quota exceeded. Please try again later.",
+          "AI service quota exceeded. Please try again later.",
       });
     }
 
     // ==========================================
-    // GEMINI 503
+    // SERVICE UNAVAILABLE
     // ==========================================
 
-    if (
-      error?.status === 503 ||
-      error?.response?.status === 503
-    ) {
+    if (status === 503) {
       return res.status(503).json({
         success: false,
         message:
-          "Gemini is temporarily unavailable. Please try again.",
+          "AI service is temporarily unavailable. Please try again.",
       });
     }
 
@@ -387,19 +509,18 @@ const generateVideo = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-
       message:
-        error.response?.data?.message ||
-        error.message ||
         "Failed to generate AI teacher video",
 
-      error:
-        process.env.NODE_ENV === "development"
-          ? error.message
-          : undefined,
+      ...(process.env.NODE_ENV === "development"
+        ? {
+            error: getErrorMessage(error),
+          }
+        : {}),
     });
   }
 };
+
 
 // ==========================================
 // GET VIDEO STATUS
@@ -407,35 +528,50 @@ const generateVideo = async (req, res) => {
 
 const getVideoStatus = async (req, res) => {
   try {
-    const userId =
-      req.user?._id ||
-      req.user?.userId ||
-      req.user?.id;
+    const { id } = req.params;
 
-    if (!userId) {
-      return res.status(401).json({
+    // ==========================================
+    // VALIDATE ID
+    // ==========================================
+
+    if (!id || !isValidObjectId(id)) {
+      return res.status(400).json({
         success: false,
-        message:
-          "User authentication required",
-      });
-    }
-
-    const video =
-      await TeachingVideo.findOne({
-        _id: req.params.id,
-        userId,
-      });
-
-    if (!video) {
-      return res.status(404).json({
-        success: false,
-        message:
-          "Teaching video not found",
+        message: "Invalid video ID",
       });
     }
 
     // ==========================================
-    // ALREADY COMPLETED
+    // AUTHENTICATION
+    // ==========================================
+
+    const userId = getUserId(req);
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "User authentication required",
+      });
+    }
+
+    // ==========================================
+    // FIND VIDEO
+    // ==========================================
+
+    const video = await TeachingVideo.findOne({
+      _id: id,
+      userId,
+    });
+
+    if (!video) {
+      return res.status(404).json({
+        success: false,
+        message: "Teaching video not found",
+      });
+    }
+
+    // ==========================================
+    // COMPLETED
     // ==========================================
 
     if (
@@ -449,7 +585,18 @@ const getVideoStatus = async (req, res) => {
     }
 
     // ==========================================
-    // CHECK SYNTHESIA
+    // FAILED
+    // ==========================================
+
+    if (video.status === "failed") {
+      return res.status(200).json({
+        success: true,
+        video,
+      });
+    }
+
+    // ==========================================
+    // CHECK AVATAR PROVIDER
     // ==========================================
 
     if (
@@ -462,28 +609,57 @@ const getVideoStatus = async (req, res) => {
             video.providerVideoId,
         });
 
-      // Update status
-      if (result?.status) {
-        video.status =
-          result.status;
+      // ==========================================
+      // UPDATE STATUS
+      // ==========================================
+
+      if (
+        result?.status &&
+        ALLOWED_VIDEO_STATUSES.includes(
+          result.status
+        )
+      ) {
+        video.status = result.status;
       }
 
-      // Update video URL
+      // ==========================================
+      // UPDATE VIDEO URL
+      // ==========================================
+
       if (result?.videoUrl) {
         video.videoUrl =
           result.videoUrl;
       }
 
-      // Update duration
-      if (result?.duration) {
+      // ==========================================
+      // UPDATE DURATION
+      // ==========================================
+
+      if (result?.duration != null) {
         video.duration =
           result.duration;
       }
 
-      // Update error
+      // ==========================================
+      // UPDATE ERROR
+      // ==========================================
+
       if (result?.error) {
         video.error =
-          result.error;
+          String(result.error);
+
+        video.status = "failed";
+      }
+
+      // ==========================================
+      // SAFETY CHECK
+      // ==========================================
+
+      if (
+        video.status === "completed" &&
+        !video.videoUrl
+      ) {
+        video.status = "processing";
       }
 
       await video.save();
@@ -493,23 +669,27 @@ const getVideoStatus = async (req, res) => {
       success: true,
       video,
     });
+
   } catch (error) {
     console.error(
       "Video status error:",
-      error.response?.data ||
-        error.message
+      getErrorMessage(error)
     );
 
     return res.status(500).json({
       success: false,
-
       message:
-        error.response?.data?.message ||
-        error.message ||
         "Failed to get video status",
+
+      ...(process.env.NODE_ENV === "development"
+        ? {
+            error: getErrorMessage(error),
+          }
+        : {}),
     });
   }
 };
+
 
 // ==========================================
 // GET VIDEO FOR LESSON
@@ -517,10 +697,27 @@ const getVideoStatus = async (req, res) => {
 
 const getLessonVideo = async (req, res) => {
   try {
-    const userId =
-      req.user?._id ||
-      req.user?.userId ||
-      req.user?.id;
+    const { lessonId } = req.params;
+
+    // ==========================================
+    // VALIDATE LESSON ID
+    // ==========================================
+
+    if (
+      !lessonId ||
+      !isValidObjectId(lessonId)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid lesson ID",
+      });
+    }
+
+    // ==========================================
+    // AUTHENTICATION
+    // ==========================================
+
+    const userId = getUserId(req);
 
     if (!userId) {
       return res.status(401).json({
@@ -530,9 +727,13 @@ const getLessonVideo = async (req, res) => {
       });
     }
 
+    // ==========================================
+    // FIND VIDEO
+    // ==========================================
+
     const video =
       await TeachingVideo.findOne({
-        lessonId: req.params.lessonId,
+        lessonId,
         userId,
       });
 
@@ -548,10 +749,11 @@ const getLessonVideo = async (req, res) => {
       success: true,
       video,
     });
+
   } catch (error) {
     console.error(
       "Get lesson video error:",
-      error
+      getErrorMessage(error)
     );
 
     return res.status(500).json({
@@ -561,6 +763,7 @@ const getLessonVideo = async (req, res) => {
     });
   }
 };
+
 
 // ==========================================
 // EXPORT
