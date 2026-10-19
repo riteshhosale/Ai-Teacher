@@ -48,3 +48,50 @@ test("unknown API routes return 404", async () => {
   const response = await fetch(`${baseUrl}/api/qa-route-that-does-not-exist`);
   assert.equal(response.status, 404);
 });
+
+test("learning profile update endpoint is mounted and requires authentication", async () => {
+  const response = await fetch(`${baseUrl}/api/profile`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ learningGoal: "Learn safely" }),
+  });
+  assert.equal(response.status, 401);
+});
+
+test("auth endpoints validate empty registration and login bodies", async () => {
+  const register = await fetch(`${baseUrl}/api/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(register.status, 400);
+
+  const login = await fetch(`${baseUrl}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(login.status, 400);
+});
+
+test("protected learning feature APIs reject requests without a token", async () => {
+  const endpoints = [
+    "/api/material/upload",
+    "/api/lesson/generate",
+    "/api/adaptive/evaluate",
+    "/api/rag/ask",
+    "/api/assessment/report",
+    "/api/speech/generate",
+    "/api/realtime/session",
+    "/api/video/generate",
+  ];
+
+  for (const endpoint of endpoints) {
+    const response = await fetch(`${baseUrl}${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(response.status, 401, `${endpoint} should require authentication`);
+  }
+});
