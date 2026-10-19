@@ -49,6 +49,26 @@ test("unknown API routes return 404", async () => {
   assert.equal(response.status, 404);
 });
 
+test("CORS allows the configured production frontend origin", async () => {
+  const response = await fetch(`${baseUrl}/api/health`, {
+    headers: { Origin: "https://ai-teacher-seven-jade.vercel.app" },
+  });
+
+  assert.equal(
+    response.headers.get("access-control-allow-origin"),
+    "https://ai-teacher-seven-jade.vercel.app"
+  );
+});
+
+test("CORS rejects arbitrary Vercel preview origins", async () => {
+  const response = await fetch(`${baseUrl}/api/health`, {
+    headers: { Origin: "https://untrusted-preview.vercel.app" },
+  });
+
+  assert.equal(response.status, 403);
+  assert.equal(response.headers.get("access-control-allow-origin"), null);
+});
+
 test("learning profile update endpoint is mounted and requires authentication", async () => {
   const response = await fetch(`${baseUrl}/api/profile`, {
     method: "PUT",
