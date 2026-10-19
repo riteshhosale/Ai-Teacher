@@ -10,6 +10,7 @@ const chromaService = require("./services/chromaService");
 // =========================
 
 const authRoutes = require("./routes/authRoutes");
+const profileRoutes = require("./routes/profileRoutes");
 const materialRoutes = require("./routes/materialRoutes");
 const lessonRoutes = require("./routes/lessonRoutes");
 const adaptiveRoutes = require("./routes/adaptiveRoutes");
@@ -169,6 +170,8 @@ app.get("/api/health", (req, res) => {
 // =========================
 
 app.use("/api/auth", authRoutes);
+
+app.use("/api/profile", profileRoutes);
 
 app.use("/api/material", materialRoutes);
 

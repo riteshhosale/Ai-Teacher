@@ -39,3 +39,19 @@ jobs:
           node-version: 22.x
       - name: Check JavaScript syntax
         run: find backend -type f -name '*.js' -not -path '*/node_modules/*' -print0 | xargs -0 -r -n1 node --check
+
+  backend-tests:
+    name: Backend API smoke tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: backend
+      - name: Run backend smoke tests
+        run: npm test
+        working-directory: backend
