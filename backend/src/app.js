@@ -40,24 +40,23 @@ let chromaReady = false;
 // CORS
 // =========================
 
-const allowedOrigins = [
+const defaultAllowedOrigins = [
   "http://localhost:5173",
   "http://127.0.0.1:5173",
   "https://ai-teacher-seven-jade.vercel.app",
 ];
 
-const isAllowedOrigin = (origin) => {
-  if (!origin) {
-    return true;
-  }
+const configuredAllowedOrigins = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
-  if (allowedOrigins.includes(origin)) {
-    return true;
-  }
+const allowedOrigins = new Set([
+  ...defaultAllowedOrigins,
+  ...configuredAllowedOrigins,
+]);
 
-  // Allow Vercel preview deployments
-  return /^https:\/\/[a-zA-Z0-9-]+\.vercel\.app$/.test(origin);
-};
+const isAllowedOrigin = (origin) => !origin || allowedOrigins.has(origin);
 
 app.use(
   cors({
