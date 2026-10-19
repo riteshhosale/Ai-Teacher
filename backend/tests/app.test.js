@@ -1,4 +1,5 @@
 process.env.GEMINI_API_KEY ||= "qa-test-key-for-import-only";
+process.env.JWT_SECRET ||= "qa-test-jwt-secret-that-is-at-least-thirty-two-characters";
 
 const assert = require("node:assert/strict");
 const { after, before, test } = require("node:test");
